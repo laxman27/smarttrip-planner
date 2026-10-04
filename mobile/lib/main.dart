@@ -2,11 +2,14 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 const apiBaseUrl = String.fromEnvironment(
   'SMARTTRIP_API_URL',
   defaultValue: 'http://10.0.2.2:8000',
 );
+
+const secureStorage = FlutterSecureStorage();
 
 const secureStorage = FlutterSecureStorage();
 
@@ -82,7 +85,51 @@ class _LoginPageState extends State<LoginPage> {
     ]))));
 }
 
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key});
+  @override State<AuthGate> createState() => _AuthGateState();
+}
+class _AuthGateState extends State<AuthGate> {
+  String? token; bool loading = true;
+  @override void initState() { super.initState(); _load(); }
+  Future<void> _load() async { final value=await secureStorage.read(key:'access_token'); if(mounted)setState((){token=value;loading=false;}); }
+  @override Widget build(BuildContext context){if(loading)return const Scaffold(body:Center(child:CircularProgressIndicator()));return token==null?const LoginPage():PlannerPage(token:token!);}
+}
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
+  @override State<LoginPage> createState()=>_LoginPageState();
+}
+class _LoginPageState extends State<LoginPage>{
+  final email=TextEditingController(),password=TextEditingController(),name=TextEditingController();
+  bool register=false,loading=false;String? error;
+  Future<void> submit() async {
+    setState((){loading=true;error=null;});
+    try{
+      final endpoint=register?'/api/v1/auth/register':'/api/v1/auth/login';
+      final body=register?{'email':email.text.trim(),'password':password.text,'display_name':name.text.trim() }:{'email':email.text.trim(),'password':password.text};
+      final r=await http.post(Uri.parse(apiBaseUrl+endpoint),headers:{'Content-Type':'application/json'},body:jsonEncode(body));
+      final data=jsonDecode(r.body);
+      if(r.statusCode>=400)throw Exception(data['detail']?.toString()??'Authentication failed.');
+      final token=data['access_token'].toString();await secureStorage.write(key:'access_token',value:token);
+      if(mounted)Navigator.of(context).pushReplacement(MaterialPageRoute(builder:(_)=>PlannerPage(token:token)));
+    }catch(e){if(mounted)setState(()=>error=e.toString().replaceFirst('Exception: ',''));}
+    finally{if(mounted)setState(()=>loading=false);}
+  }
+  @override void dispose(){email.dispose();password.dispose();name.dispose();super.dispose();}
+  @override Widget build(BuildContext context)=>Scaffold(body:Center(child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:480),child:ListView(padding:const EdgeInsets.all(24),shrinkWrap:true,children:[
+    const Text('SMARTTRIP',style:TextStyle(fontWeight:FontWeight.w800,letterSpacing:2)),const SizedBox(height:10),
+    Text(register?'Create your account':'Welcome back',style:const TextStyle(fontSize:30,fontWeight:FontWeight.bold)),const SizedBox(height:24),
+    if(register)TextField(controller:name,decoration:const InputDecoration(labelText:'Display name',border:OutlineInputBorder())),if(register)const SizedBox(height:12),
+    TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email',border:OutlineInputBorder())),const SizedBox(height:12),
+    TextField(controller:password,obscureText:true,decoration:const InputDecoration(labelText:'Password (10+ characters)',border:OutlineInputBorder())),
+    if(error!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(error!,style:TextStyle(color:Theme.of(context).colorScheme.error))),const SizedBox(height:18),
+    FilledButton(onPressed:loading?null:submit,child:Text(loading?'Please wait…':register?'Create account':'Sign in')),
+    TextButton(onPressed:loading?null:()=>setState(()=>register=!register),child:Text(register?'Already have an account? Sign in':'Create a new account'))
+  ]))));
+}
 class PlannerPage extends StatefulWidget {
+  final String token;
+  const PlannerPage({super.key,required this.token});
   final String token;
   const PlannerPage({super.key,required this.token});
   const PlannerPage({super.key});
@@ -138,6 +185,8 @@ class _PlannerPageState extends State<PlannerPage> {
     }catch(e){if(mounted)setState(()=>message=e.toString().replaceFirst('Exception: ',''));}
     finally{if(mounted)setState(()=>saving=false);}
   }
+
+  @override void initState(){super.initState();loadSavedTrips();}
 
   Future<void> planTrip() async {
     setState(() {
@@ -205,6 +254,8 @@ class _PlannerPageState extends State<PlannerPage> {
           TextField(controller: origin, onChanged: (v){ selectedOriginPlaceId=null; searchPlaces(v,true); }, decoration: const InputDecoration(labelText: 'Start location')),
           const SizedBox(height: 12),
           TextField(controller: destination, onChanged: (v){ selectedDestinationPlaceId=null; searchPlaces(v,false); }, decoration: const InputDecoration(labelText: 'Destination')),
+          ...startSuggestions.take(5).map((item){final p=item['placePrediction'];final label=p?['text']?['text']?.toString()??'';return ListTile(title:Text(label),onTap:(){origin.text=label;selectedOriginPlaceId=p?['placeId']?.toString();setState(()=>startSuggestions=[]);});}),
+          ...destinationSuggestions.take(5).map((item){final p=item['placePrediction'];final label=p?['text']?['text']?.toString()??'';return ListTile(title:Text(label),onTap:(){destination.text=label;selectedDestinationPlaceId=p?['placeId']?.toString();setState(()=>destinationSuggestions=[]);});}),
           ...startSuggestions.take(5).map((item){final p=item['placePrediction'];final label=p?['text']?['text']?.toString()??'';return ListTile(title:Text(label),onTap:(){origin.text=label;selectedOriginPlaceId=p?['placeId']?.toString();setState(()=>startSuggestions=[]);});}),
           ...destinationSuggestions.take(5).map((item){final p=item['placePrediction'];final label=p?['text']?['text']?.toString()??'';return ListTile(title:Text(label),onTap:(){destination.text=label;selectedDestinationPlaceId=p?['placeId']?.toString();setState(()=>destinationSuggestions=[]);});}),
           const SizedBox(height: 20),
