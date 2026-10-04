@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field
 
 from app.services.google_places import nearby_search
 from app.services.trip_planner import plan_trip
+from app.api.auth import current_user
+from app.db import get_db
+from app.models import Trip, User
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/v1/trips", tags=["trip-planning"])
 
@@ -106,3 +110,44 @@ async def find_trip_stops(request: TripStopsRequest):
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Nearby stop search failed") from exc
+
+
+class SaveTripRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    start_label: str = Field(min_length=1, max_length=255)
+    destination_label: str = Field(min_length=1, max_length=255)
+    departure_at: datetime | None = None
+    vehicle_type: str | None = Field(default=None, max_length=40)
+    preferences: dict = Field(default_factory=dict)
+
+@router.post("/saved", status_code=201)
+def save_trip(request: SaveTripRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    trip = Trip(user_id=user.id, name=request.name, start_label=request.start_label,
+                destination_label=request.destination_label, departure_at=request.departure_at,
+                vehicle_type=request.vehicle_type, preferences=request.preferences)
+    db.add(trip)
+    db.commit()
+    db.refresh(trip)
+    return {"id": trip.id, "name": trip.name, "start_label": trip.start_label,
+            "destination_label": trip.destination_label, "departure_at": trip.departure_at,
+            "vehicle_type": trip.vehicle_type, "preferences": trip.preferences,
+            "created_at": trip.created_at}
+
+@router.get("/saved")
+def list_saved_trips(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    trips = db.query(Trip).filter(Trip.user_id == user.id).order_by(Trip.created_at.desc()).all()
+    return {"trips": [
+        {"id": t.id, "name": t.name, "start_label": t.start_label,
+         "destination_label": t.destination_label, "departure_at": t.departure_at,
+         "vehicle_type": t.vehicle_type, "preferences": t.preferences, "created_at": t.created_at}
+        for t in trips
+    ]}
+
+@router.delete("/saved/{trip_id}")
+def delete_saved_trip(trip_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    trip = db.query(Trip).filter(Trip.id == trip_id, Trip.user_id == user.id).first()
+    if not trip:
+        raise HTTPException(status_code=404, detail="Saved trip not found")
+    db.delete(trip)
+    db.commit()
+    return {"deleted": True, "id": trip_id}
