@@ -1,5 +1,6 @@
 "use client";
 
+import TripMap from "../components/TripMap";
 import { useEffect, useRef, useState } from "react";
 
 type Prediction = {
@@ -214,6 +215,8 @@ export default function Home() {
         {error && <p role="alert" style={{ color: "#b00020", marginTop: 18 }}>{error}</p>}
 
         {routes.length > 0 && (
+          <div style={{ marginTop: 24 }}><TripMap routes={routes} /></div>
+
           <div style={{ display: "grid", gap: 14, marginTop: 24 }}>
             {routes.map((route, index) => (
               <article key={index} style={{ background: "#fff", padding: 20, borderRadius: 14 }}>
