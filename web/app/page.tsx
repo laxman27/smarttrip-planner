@@ -95,21 +95,22 @@ function SearchBox({
 }) {
   const [suggestions, setSuggestions] = useState<Prediction[]>([]);
   const [open, setOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestRef = useRef(0);
 
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   function search(next: string) {
     onChange(next);
+    setSearchError("");
     if (timer.current) clearTimeout(timer.current);
     if (next.trim().length < 2) {
-      setSuggestions([]);
-      setOpen(false);
-      return;
+      setSuggestions([]); setOpen(false); setSearching(false); return;
     }
-
+    setSearching(true);
+    const requestId = ++requestRef.current;
     timer.current = setTimeout(async () => {
       try {
         const token = sessionStorage.getItem("smarttrip-place-session") ?? createPlaceSessionToken();
@@ -119,49 +120,60 @@ function SearchBox({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: next.trim(), session_token: token }),
         });
-        if (!response.ok) throw new Error();
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Place suggestions are unavailable.");
+        if (requestId !== requestRef.current) return;
         setSuggestions(data.suggestions ?? []);
         setOpen(true);
-      } catch {
+      } catch (err) {
+        if (requestId !== requestRef.current) return;
         setSuggestions([]);
+        setOpen(true);
+        setSearchError(err instanceof Error ? err.message : "Place suggestions are unavailable.");
+      } finally {
+        if (requestId === requestRef.current) setSearching(false);
       }
-    }, 250);
+    }, 300);
   }
 
   return (
-    <div style={{ position: "relative" }}>
-      <label style={{ display: "block", fontWeight: 650, marginBottom: 7 }}>{label}</label>
-      <input
-        value={value}
-        onChange={(e) => search(e.target.value)}
-        onFocus={() => suggestions.length > 0 && setOpen(true)}
-        placeholder={label === "Start" ? "Search starting location" : "Search destination"}
-        required
-        style={{ boxSizing: "border-box", width: "100%", padding: 14, borderRadius: 10, border: "1px solid #d7dbe2", fontSize: 16 }}
-      />
-      {open && suggestions.length > 0 && (
-        <div style={{ position: "absolute", zIndex: 10, left: 0, right: 0, top: "100%", background: "#fff", border: "1px solid #ddd", borderRadius: 10, marginTop: 4, overflow: "hidden", boxShadow: "0 8px 30px rgba(0,0,0,.12)" }}>
-          {suggestions.map((item, index) => {
+    <div className="search-box">
+      <label>{label}</label>
+      <div className={"search-input-wrap" + (open && suggestions.length ? " has-results" : "")}>
+        <span className="search-pin" aria-hidden="true">●</span>
+        <input
+          value={value}
+          onChange={(e) => search(e.target.value)}
+          onFocus={() => (suggestions.length > 0 || !!searchError) && setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 180)}
+          placeholder={label === "Start" ? "Search city, address or landmark" : "Search destination"}
+          required
+          autoComplete="off"
+        />
+        {searching && <span className="search-spinner" aria-label="Searching" />}
+      </div>
+      {open && (searching || suggestions.length > 0 || searchError) && (
+        <div className="suggestions-panel">
+          {searching && <div className="suggestion-status"><span className="search-spinner" /> Searching Google Places…</div>}
+          {!searching && suggestions.map((item, index) => {
             const prediction = item.placePrediction;
             if (!prediction?.placeId) return null;
             const main = prediction.structuredFormat?.mainText?.text ?? prediction.text?.text ?? "";
             const secondary = prediction.structuredFormat?.secondaryText?.text ?? "";
             return (
-              <button
-                type="button"
-                key={prediction.placeId + index}
+              <button type="button" className="suggestion-item" key={prediction.placeId + index}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   onSelect({ placeId: prediction.placeId!, label: main + (secondary ? ", " + secondary : "") });
                   setOpen(false);
-                }}
-                style={{ display: "block", width: "100%", textAlign: "left", border: 0, background: "#fff", padding: "13px 15px", cursor: "pointer" }}
-              >
-                <strong>{main}</strong>
-                {secondary && <span style={{ display: "block", color: "#68707c", marginTop: 3 }}>{secondary}</span>}
+                }}>
+                <span className="suggestion-icon">⌖</span>
+                <span><strong>{main}</strong>{secondary && <small>{secondary}</small>}</span>
               </button>
             );
           })}
+          {!searching && !suggestions.length && !searchError && <div className="suggestion-status">No places found. Try a city, landmark or full address.</div>}
+          {searchError && <div className="suggestion-error">{searchError}<small>Check the backend Google Maps API key and Places API (New) configuration.</small></div>}
         </div>
       )}
     </div>
