@@ -41,9 +41,10 @@ class StopCandidate(BaseModel):
     fraction: float = Field(ge=0, le=1)
 
 class TripStopsRequest(BaseModel):
-    candidates: list[StopCandidate] = Field(min_length=1, max_length=3)
+    candidates: list[StopCandidate] = Field(min_length=1, max_length=6)
     categories: list[Literal["fuel", "ev_charging", "restaurant", "hotel", "hospital", "parking", "rest_stop"]] = Field(default=["rest_stop", "restaurant", "fuel"], min_length=1, max_length=4)
     radius_meters: float = Field(default=5000, ge=100, le=20000)
+    max_results_per_category: int = Field(default=3, ge=1, le=5)
 
 STOP_TYPES = {
     "fuel": ["gas_station"],
@@ -65,13 +66,34 @@ async def find_trip_stops(request: TripStopsRequest):
             longitude=candidate.longitude,
             included_types=STOP_TYPES[category],
             radius_meters=request.radius_meters,
-            max_result_count=5,
+            max_result_count=request.max_results_per_category,
             rank_preference="DISTANCE",
         )
+        places = data.get("places", [])
+        ranked = []
+        for place in places:
+            location = place.get("location") or {}
+            lat = location.get("latitude")
+            lng = location.get("longitude")
+            if lat is None or lng is None:
+                continue
+            # Google Nearby Search is distance-ranked; keep an explicit route-window
+            # score so clients can distinguish proximity from place metadata.
+            dlat = float(lat) - candidate.latitude
+            dlng = float(lng) - candidate.longitude
+            distance_score = max(0.0, 100.0 - min(100.0, ((dlat * dlat + dlng * dlng) ** 0.5) * 900))
+            primary_type = place.get("primaryType") or category
+            relevance_bonus = 10.0 if primary_type == STOP_TYPES[category][0] else 0.0
+            place["smart_stop_score"] = round(distance_score + relevance_bonus, 1)
+            place["route_stop_reason"] = "driver_rest_window" if category == "rest_stop" else category
+            ranked.append(place)
+        ranked.sort(key=lambda item: item.get("smart_stop_score", 0), reverse=True)
         return {
             "route_fraction": candidate.fraction,
             "category": category,
-            "places": data.get("places", []),
+            "planned_drive_hours": candidate.fraction,
+            "selection_method": "Google Nearby Search distance + place-type relevance",
+            "places": ranked,
         }
 
     try:
