@@ -28,9 +28,8 @@ type Route = {
   description?: string;
   polyline?: string;
   estimated_arrival_at?: string;
-  toll?: { amount?: number | null; currency?: string | null; available?: boolean };
+  toll?: { amount?: number | null; currency?: string | null };
   energy?: { user_estimated_units?: number | null; unit?: string; estimated_cost?: number | null };
-  label?: string;
   road_intelligence?: { traffic?: { congestion?: string; traffic_score?: number; estimated_average_speed_kmh?: number }; safety?: { score?: number; warnings_count?: number }; road_quality?: { score?: number | null; status?: string } };
   trip_score?: { overall_score?: number; grade?: string; components?: { traffic?: number; safety?: number; data_completeness?: number } };
   road_attributes?: {
@@ -72,16 +71,331 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 function createPlaceSessionToken() {
   if (typeof globalThis !== "undefined" && globalThis.crypto) {
-    if (typeof globalThis.crypto.randomUUID === "function") {
-      return globalThis.crypto.randomUUID();
-    }
+    if (typeof globalThis.crypto.randomUUID === "function") return globalThis.createPlaceSessionToken();
     if (typeof globalThis.crypto.getRandomValues === "function") {
       const bytes = new Uint8Array(16);
       globalThis.crypto.getRandomValues(bytes);
-      bytes[6] = (bytes[6] & 0x0f) | 0x40;
-      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      bytes[6] = (bytes[6] & 15) | 64;
+      bytes[8] = (bytes[8] & 63) | 128;
       const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-      return (
+      return hex.slice(0,8)+"-"+hex.slice(8,12)+"-"+hex.slice(12,16)+"-"+hex.slice(16,20)+"-"+hex.slice(20);
+    }
+  }
+  return "st-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+}
+
+
+function SearchBox({
+  label, value, onChange, onSelect,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onSelect: (place: Place) => void;
+}) {
+  const [suggestions, setSuggestions] = useState<Prediction[]>([]);
+  const [open, setOpen] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+
+  function search(next: string) {
+    onChange(next);
+    if (timer.current) clearTimeout(timer.current);
+    if (next.trim().length < 2) {
+      setSuggestions([]);
+      setOpen(false);
+      return;
+    }
+
+    timer.current = setTimeout(async () => {
+      try {
+        const token = sessionStorage.getItem("smarttrip-place-session") ?? createPlaceSessionToken();
+        sessionStorage.setItem("smarttrip-place-session", token);
+        const response = await fetch(API + "/api/v1/places/autocomplete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: next.trim(), session_token: token }),
+        });
+        if (!response.ok) throw new Error();
+        const data = await response.json();
+        setSuggestions(data.suggestions ?? []);
+        setOpen(true);
+      } catch {
+        setSuggestions([]);
+      }
+    }, 250);
+  }
+
+  return (
+    <div style={{ position: "relative" }}>
+      <label style={{ display: "block", fontWeight: 650, marginBottom: 7 }}>{label}</label>
+      <input
+        value={value}
+        onChange={(e) => search(e.target.value)}
+        onFocus={() => suggestions.length > 0 && setOpen(true)}
+        placeholder={label === "Start" ? "Search starting location" : "Search destination"}
+        required
+        style={{ boxSizing: "border-box", width: "100%", padding: 14, borderRadius: 10, border: "1px solid #d7dbe2", fontSize: 16 }}
+      />
+      {open && suggestions.length > 0 && (
+        <div style={{ position: "absolute", zIndex: 10, left: 0, right: 0, top: "100%", background: "#fff", border: "1px solid #ddd", borderRadius: 10, marginTop: 4, overflow: "hidden", boxShadow: "0 8px 30px rgba(0,0,0,.12)" }}>
+          {suggestions.map((item, index) => {
+            const prediction = item.placePrediction;
+            if (!prediction?.placeId) return null;
+            const main = prediction.structuredFormat?.mainText?.text ?? prediction.text?.text ?? "";
+            const secondary = prediction.structuredFormat?.secondaryText?.text ?? "";
+            return (
+              <button
+                type="button"
+                key={prediction.placeId + index}
+                onClick={() => {
+                  onSelect({ placeId: prediction.placeId!, label: main + (secondary ? ", " + secondary : "") });
+                  setOpen(false);
+                }}
+                style={{ display: "block", width: "100%", textAlign: "left", border: 0, background: "#fff", padding: "13px 15px", cursor: "pointer" }}
+              >
+                <strong>{main}</strong>
+                {secondary && <span style={{ display: "block", color: "#68707c", marginTop: 3 }}>{secondary}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function isoForDateTime(date: string, time: string) {
+  return new Date(date + "T" + time).toISOString();
+}
+
+function formatSeconds(seconds?: number) {
+  if (!seconds) return "Unavailable";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.round((seconds % 3600) / 60);
+  return hours ? hours + "h " + minutes + "m" : minutes + "m";
+}
+
+export default function Home() {
+  const [origin, setOrigin] = useState<Place | null>(null);
+  const [destination, setDestination] = useState<Place | null>(null);
+  const [originText, setOriginText] = useState("");
+  const [destinationText, setDestinationText] = useState("");
+  const [departureDate, setDepartureDate] = useState("");
+  const [departureTime, setDepartureTime] = useState("08:00");
+  const [vehicleType, setVehicleType] = useState("car");
+  const [emissionType, setEmissionType] = useState("GASOLINE");
+  const [efficiency, setEfficiency] = useState("12");
+  const [fuelPrice, setFuelPrice] = useState("100");
+  const [maxDriveHours, setMaxDriveHours] = useState("4");
+  const [avoidTolls, setAvoidTolls] = useState(false);
+  const [avoidHighways, setAvoidHighways] = useState(false);
+  const [routes, setRoutes] = useState<Route[]>([]);
+  const [stops, setStops] = useState<Array<{ route_fraction: number; category: string; places: Array<{ id?: string; displayName?: { text?: string }; formattedAddress?: string; googleMapsUri?: string }> }>>([]);
+  const [stopsLoading, setStopsLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authName, setAuthName] = useState("");
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [savedTrips, setSavedTrips] = useState<SavedTrip[]>([]);
+  const [savedTripsLoading, setSavedTripsLoading] = useState(false);
+  const [saveTripLoading, setSaveTripLoading] = useState(false);
+
+  useEffect(() => {
+    if (localStorage.getItem("smarttrip-token")) void loadCurrentUser();
+    if (!sessionStorage.getItem("smarttrip-place-session")) {
+      sessionStorage.setItem("smarttrip-place-session", createPlaceSessionToken());
+    }
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+    setDepartureDate(local.toISOString().slice(0, 10));
+  }, []);
+
+  function authHeaders() {
+    const token = localStorage.getItem("smarttrip-token");
+    return token ? { Authorization: "Bearer " + token } : {};
+  }
+
+  async function loadSavedTrips() {
+    const token = localStorage.getItem("smarttrip-token");
+    if (!token) return;
+    setSavedTripsLoading(true);
+    try {
+      const response = await fetch(API + "/api/v1/trips/saved", { headers: authHeaders() });
+      if (!response.ok) throw new Error();
+      const data = await response.json();
+      setSavedTrips(data.trips ?? data ?? []);
+    } catch { setSavedTrips([]); }
+    finally { setSavedTripsLoading(false); }
+  }
+
+  async function loadCurrentUser() {
+    const token = localStorage.getItem("smarttrip-token");
+    if (!token) return;
+    try {
+      const response = await fetch(API + "/api/v1/auth/me", { headers: authHeaders() });
+      if (!response.ok) throw new Error();
+      setUser(await response.json());
+      await loadSavedTrips();
+    } catch {
+      localStorage.removeItem("smarttrip-token");
+      setUser(null);
+      setSavedTrips([]);
+    }
+  }
+
+  async function submitAuth(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    setAuthLoading(true);
+    try {
+      const endpoint = authMode === "login" ? "/api/v1/auth/login" : "/api/v1/auth/register";
+      const body = authMode === "login"
+        ? { email: authEmail.trim(), password: authPassword }
+        : { email: authEmail.trim(), password: authPassword, display_name: authName.trim() || undefined };
+      const response = await fetch(API + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Authentication failed.");
+      if (!data.access_token) throw new Error("Authentication succeeded but no access token was returned.");
+      localStorage.setItem("smarttrip-token", data.access_token);
+      setAuthEmail(""); setAuthPassword(""); setAuthName("");
+      await loadCurrentUser();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Authentication failed.");
+    } finally { setAuthLoading(false); }
+  }
+
+  function logout() {
+    localStorage.removeItem("smarttrip-token");
+    setUser(null);
+    setSavedTrips([]);
+  }
+
+  async function saveCurrentTrip() {
+    if (!user) { setError("Sign in before saving a trip."); return; }
+    if (!origin?.label || !destination?.label) { setError("Complete the trip details before saving."); return; }
+    setSaveTripLoading(true); setError("");
+    try {
+      const response = await fetch(API + "/api/v1/trips/saved", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({
+          name: origin.label + " → " + destination.label,
+          start_label: origin.label,
+          destination_label: destination.label,
+          departure_at: isoForDateTime(departureDate, departureTime),
+          vehicle_type: vehicleType,
+          preferences: { emission_type: emissionType, fuel_efficiency: Number(efficiency), fuel_price_per_unit: Number(fuelPrice), avoid_tolls: avoidTolls, avoid_highways: avoidHighways, max_drive_hours: Number(maxDriveHours), break_minutes: 20 }
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Unable to save trip.");
+      await loadSavedTrips();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save trip.");
+    } finally { setSaveTripLoading(false); }
+  }
+
+  async function deleteSavedTrip(id: number) {
+    try {
+      const response = await fetch(API + "/api/v1/trips/saved/" + id, { method: "DELETE", headers: authHeaders() });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Unable to delete saved trip.");
+      setSavedTrips((current) => current.filter((trip) => trip.id !== id));
+    } catch (err) { setError(err instanceof Error ? err.message : "Unable to delete saved trip."); }
+  }
+
+  async function planTrip(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    setRoutes([]);
+    setStops([]);
+
+    if (!origin?.placeId || !destination?.placeId) {
+      setError("Select both locations from the search suggestions.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(API + "/api/v1/trips/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin_place_id: origin.placeId,
+          destination_place_id: destination.placeId,
+          departure_at: isoForDateTime(departureDate, departureTime),
+          vehicle_type: vehicleType,
+          emission_type: emissionType,
+          fuel_efficiency: Number(efficiency),
+          fuel_price_per_unit: Number(fuelPrice),
+          currency: "INR",
+          avoid_tolls: avoidTolls,
+          avoid_highways: avoidHighways,
+          max_drive_hours: Number(maxDriveHours),
+          break_minutes: 20,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail ?? "Trip planning failed.");
+      setRoutes(data.routes ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to plan this trip.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function findStops() {
+    const candidates = routes[0]?.rest_stop_candidates;
+    if (!candidates?.length) return;
+    setStopsLoading(true);
+    try {
+      const categories = emissionType === "ELECTRIC"
+        ? ["rest_stop", "restaurant", "ev_charging", "hotel"]
+        : ["rest_stop", "restaurant", "fuel", "hotel"];
+      const response = await fetch(API + "/api/v1/trips/stops", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidates, categories, radius_meters: 5000, max_results_per_category: 3 }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail ?? "Stop search failed.");
+      setStops(data.stops ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to find nearby stops.");
+    } finally {
+      setStopsLoading(false);
+    }
+  }
+
+  const mapRoutes = routes.map((route) => ({
+    distanceMeters: (route.distance_km ?? 0) * 1000,
+    duration: route.traffic_duration_seconds ? route.traffic_duration_seconds + "s" : undefined,
+    staticDuration: route.typical_duration_seconds ? route.typical_duration_seconds + "s" : undefined,
+    polyline: { encodedPolyline: route.polyline ?? "" },
+    roadSections: (route.road_attributes?.sections ?? [])
+      .filter((section) => section.latitude != null && section.longitude != null)
+      .map((section) => ({
+        latitude: section.latitude as number,
+        longitude: section.longitude as number,
+        score: section.score,
+        route_fraction: section.route_fraction,
+        traffic_status: section.traffic_status,
+        traffic_score: section.traffic_score,
+        safety_signal: section.safety_signal,
+        safety_score: section.safety_score,
+      })),
+  }));
+
+  return (
     <main className="app-shell">
       <header className="topbar">
         <div className="brand">
