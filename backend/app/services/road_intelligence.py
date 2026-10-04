@@ -18,7 +18,7 @@ def analyze_route(route: dict[str, Any]) -> dict[str, Any]:
 
     # This is a transparent derived score, not a claim that Google supplies a
     # universal pavement/road-quality rating.
-    traffic_penalty = _clamp((ratio - 1.0) * 100)
+    traffic_penalty = _clamp((ratio - 1.0) * 100, 0.0, 60.0)
     traffic_score = round(_clamp(100 - traffic_penalty), 1)
 
     warnings = route.get("warnings") or []
