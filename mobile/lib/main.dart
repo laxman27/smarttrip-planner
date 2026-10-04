@@ -196,10 +196,7 @@ class _PlannerPageState extends State<PlannerPage> {
 
     try {
       if(selectedOriginPlaceId==null || selectedDestinationPlaceId==null) throw Exception('Select both locations from the official place suggestions.');
-      final o = origin.text.split(',').map(double.parse).toList();
-      final d = destination.text.split(',').map(double.parse).toList();
-
-      final response = await http.post(
+            final response = await http.post(
         Uri.parse('$apiBaseUrl/api/v1/routes/calculate'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
