@@ -316,7 +316,21 @@ export default function Home() {
 
         {routes.length > 0 && (
           <>
-            <div style={{ marginTop: 24 }}><TripMap routes={mapRoutes.map((item, index) => ({ ...item, roadSections: routes[index]?.road_attributes?.sections ?? [] }))} /></div>
+            <div style={{ marginTop: 24 }}><TripMap routes={mapRoutes.map((item, index) => ({
+              ...item,
+              roadSections: (routes[index]?.road_attributes?.sections ?? [])
+                .filter((section) => section.latitude != null && section.longitude != null)
+                .map((section) => ({
+                  latitude: section.latitude as number,
+                  longitude: section.longitude as number,
+                  score: section.score,
+                  route_fraction: section.route_fraction,
+                  traffic_status: section.traffic_status,
+                  traffic_score: section.traffic_score,
+                  safety_signal: section.safety_signal,
+                  safety_score: section.safety_score,
+                })),
+            }))} /></div>
             <div style={{ display: "grid", gap: 14, marginTop: 24 }}>
               {routes.map((route, index) => (
                 <article key={index} style={{ background: "#fff", padding: 20, borderRadius: 14 }}>
