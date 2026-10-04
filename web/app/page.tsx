@@ -319,6 +319,12 @@ export default function Home() {
                               {section.lanes ? " · " + section.lanes + " lanes" : ""}
                               {section.lit ? " · lighting " + section.lit : ""}
                             </div>
+                            <div style={{ marginTop: 5, fontSize: 12 }}>
+                              Traffic: <strong>{section.traffic_status ?? "unavailable"}</strong>
+                              {section.traffic_score != null ? " · " + section.traffic_score + "/100" : ""}
+                              {" · "}Safety: <strong>{section.safety_signal ?? "unavailable"}</strong>
+                              {section.safety_score != null ? " · " + section.safety_score + "/100" : ""}
+                            </div>
                             <div style={{ color: "#68707c", fontSize: 12, marginTop: 3 }}>
                               Confidence {Math.round((section.confidence ?? 0) * 100)}% · {section.status}
                             </div>
