@@ -71,7 +71,7 @@ async def nearby_search(
         "X-Goog-Api-Key": settings.google_maps_api_key,
         "X-Goog-FieldMask": (
             "places.id,places.displayName,places.formattedAddress,"
-            "places.location,places.primaryType,places.types,places.googleMapsUri"
+            "places.location,places.primaryType,places.types,places.googleMapsUri,places.photos"
         ),
     }
 
@@ -89,3 +89,15 @@ async def nearby_search(
         raise HTTPException(status_code=502, detail=detail)
 
     return response.json()
+
+
+async def get_place_photo(photo_name: str, max_width_px: int = 640) -> tuple[bytes, str]:
+    if not photo_name.startswith("places/"):
+        raise HTTPException(status_code=400, detail="Invalid photo reference")
+    url = f"https://places.googleapis.com/v1/{photo_name}/media"
+    params = {"maxWidthPx": max_width_px, "key": settings.google_maps_api_key}
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        response = await client.get(url, params=params)
+    if response.status_code >= 400:
+        raise HTTPException(status_code=502, detail="Place photo request failed")
+    return response.content, response.headers.get("content-type", "image/jpeg")
