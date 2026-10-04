@@ -28,7 +28,7 @@ type Route = {
   estimated_arrival_at?: string;
   toll?: { amount?: number | null; currency?: string | null };
   energy?: { user_estimated_units?: number | null; unit?: string; estimated_cost?: number | null };
-  itinerary?: Array<{
+  road_intelligence?: { traffic?: { congestion?: string; traffic_score?: number; estimated_average_speed_kmh?: number }; safety?: { score?: number; warnings_count?: number }; road_quality?: { score?: number | null; status?: string } };\n  trip_score?: { overall_score?: number; grade?: string; components?: { traffic?: number; safety?: number; data_completeness?: number } };\n  itinerary?: Array<{
     day: number;
     start_time: string;
     drive_hours: number;
@@ -290,6 +290,14 @@ export default function Home() {
                   <p><strong>Tolls:</strong> {route.toll?.available ? "₹" + route.toll.amount?.toFixed(2) : "No estimated toll price returned"}</p>
                   <p><strong>Fuel/energy:</strong> {route.energy?.user_estimated_units != null ? route.energy.user_estimated_units.toFixed(2) + " " + route.energy.unit : "Not calculated"}</p>
                   <p><strong>Estimated trip cost:</strong> {route.toll?.amount != null || route.energy?.estimated_cost != null ? "₹" + ((route.toll?.amount ?? 0) + (route.energy?.estimated_cost ?? 0)).toFixed(2) : "Unavailable"}</p>
+                  <div style={{ marginTop: 16, padding: 14, borderRadius: 12, background: "#f5f7fa" }}>
+                    <strong>Trip intelligence</strong>
+                    <p style={{ marginBottom: 5 }}>Overall score: <strong>{route.trip_score?.overall_score ?? "—"}/100</strong> · {route.trip_score?.grade ?? "unavailable"}</p>
+                    <p style={{ margin: "5px 0" }}>Traffic: {route.road_intelligence?.traffic?.congestion ?? "—"} · {route.road_intelligence?.traffic?.traffic_score ?? "—"}/100</p>
+                    <p style={{ margin: "5px 0" }}>Safety signal: {route.road_intelligence?.safety?.score ?? "—"}/100</p>
+                    <p style={{ margin: "5px 0" }}>Average traffic speed: {route.road_intelligence?.traffic?.estimated_average_speed_kmh != null ? route.road_intelligence.traffic.estimated_average_speed_kmh + " km/h" : "Unavailable"}</p>
+                    <p style={{ margin: "5px 0", color: "#68707c", fontSize: 13 }}>Road quality: {route.road_intelligence?.road_quality?.status ?? "Dedicated road-condition data required"}</p>
+                  </div>
 
                   {route.itinerary?.length ? (
                     <div style={{ marginTop: 18 }}>
