@@ -421,7 +421,7 @@ export default function Home() {
               onSelect={(place) => { setOrigin(place); setOriginText(place.label); }} />
             <SearchBox label="Destination" value={destinationText}
               onChange={(value) => { setDestinationText(value); setDestination(null); }}
-              onSelect={(place) => { setDestination(place); setOriginText(place.label); setDestinationText(place.label); }} />
+              onSelect={(place) => { setDestination(place); setDestinationText(place.label); }} />
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
               <label>Departure date<input type="date" value={departureDate} onChange={(e) => setDepartureDate(e.target.value)} required style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 6, padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }} /></label>
