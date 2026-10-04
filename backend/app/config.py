@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     overpass_url: str = "https://overpass-api.de/api/interpreter"
     jwt_expire_minutes: int = 60 * 24 * 7
 
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
 
 settings = Settings()
