@@ -39,6 +39,7 @@ class StopCandidate(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     fraction: float = Field(ge=0, le=1)
+    planned_drive_hours: float | None = Field(default=None, ge=0, le=24)
 
 class TripStopsRequest(BaseModel):
     candidates: list[StopCandidate] = Field(min_length=1, max_length=6)
@@ -91,7 +92,7 @@ async def find_trip_stops(request: TripStopsRequest):
         return {
             "route_fraction": candidate.fraction,
             "category": category,
-            "planned_drive_hours": candidate.fraction,
+            "planned_drive_hours": candidate.planned_drive_hours,
             "selection_method": "Google Nearby Search distance + place-type relevance",
             "places": ranked,
         }
