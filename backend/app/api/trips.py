@@ -4,7 +4,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.trip_planner import plan_trip
+from app.services.google_places import nearby_search\nfrom app.services.trip_planner import plan_trip
 
 router = APIRouter(prefix="/api/v1/trips", tags=["trip-planning"])
 
@@ -32,3 +32,53 @@ async def create_trip_plan(request: TripPlanRequest):
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Trip planning provider request failed") from exc
+
+
+class StopCandidate(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    fraction: float = Field(ge=0, le=1)
+
+class TripStopsRequest(BaseModel):
+    candidates: list[StopCandidate] = Field(min_length=1, max_length=3)
+    categories: list[Literal["fuel", "ev_charging", "restaurant", "hotel", "hospital", "parking", "rest_stop"]] = Field(default=["rest_stop", "restaurant", "fuel"], min_length=1, max_length=4)
+    radius_meters: float = Field(default=5000, ge=100, le=20000)
+
+STOP_TYPES = {
+    "fuel": ["gas_station"],
+    "ev_charging": ["electric_vehicle_charging_station"],
+    "restaurant": ["restaurant"],
+    "hotel": ["hotel"],
+    "hospital": ["hospital"],
+    "parking": ["parking"],
+    "rest_stop": ["rest_stop"],
+}
+
+@router.post("/stops")
+async def find_trip_stops(request: TripStopsRequest):
+    import asyncio
+
+    async def search(candidate: StopCandidate, category: str):
+        data = await nearby_search(
+            latitude=candidate.latitude,
+            longitude=candidate.longitude,
+            included_types=STOP_TYPES[category],
+            radius_meters=request.radius_meters,
+            max_result_count=5,
+            rank_preference="DISTANCE",
+        )
+        return {
+            "route_fraction": candidate.fraction,
+            "category": category,
+            "places": data.get("places", []),
+        }
+
+    try:
+        results = await asyncio.gather(
+            *(search(candidate, category) for candidate in request.candidates for category in request.categories)
+        )
+        return {"stops": results}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Nearby stop search failed") from exc
