@@ -150,12 +150,35 @@ async def plan_trip(request: Any) -> dict[str, Any]:
 
         intelligence = analyze_route(route)
         road_attributes = await lookup_road_attributes(_sample_route((route.get("polyline") or {}).get("encodedPolyline"), [0.08, 0.16, 0.24, 0.32, 0.40, 0.48, 0.56, 0.64, 0.72, 0.80, 0.88, 0.96]))
+        # Google Routes exposes traffic at route level here, not as an exact live
+        # feed for every sampled road section. Propagate that signal transparently
+        # to sampled sections so the UI can distinguish traffic from road attributes.
+        traffic_signal = intelligence["traffic"]
+        safety_signal = intelligence["safety"]
+        for section in road_attributes.get("sections", []):
+            section["traffic_status"] = traffic_signal["congestion"]
+            section["traffic_score"] = traffic_signal["traffic_score"]
+            section["traffic_source"] = "Google Routes route-level traffic signal"
+            section["safety_signal"] = "attention" if safety_signal["score"] < 60 else ("caution" if safety_signal["score"] < 80 else "normal")
+            section["safety_score"] = safety_signal["score"]
+            section["safety_source"] = "Derived from route warnings and traffic-vs-typical duration"
         trip_score = score_trip(
             intelligence,
             distance_km,
             toll_available=toll_amount is not None,
             fuel_cost_available=user_cost is not None,
         )
+
+        rest_candidates = _sample_route(
+            (route.get("polyline") or {}).get("encodedPolyline"),
+            rest_fractions,
+        )
+        for stop_index, stop in enumerate(rest_candidates, start=1):
+            planned_drive_hours = round(duration_seconds * stop["fraction"] / 3600, 2)
+            stop["stop_index"] = stop_index
+            stop["reason"] = "driver_rest"
+            stop["planned_drive_hours"] = planned_drive_hours
+            stop["recommended_after_hours"] = round(max_drive_hours, 2)
 
         routes.append({
             "route_index": route_index,
@@ -182,10 +205,7 @@ async def plan_trip(request: Any) -> dict[str, Any]:
             "road_intelligence": intelligence,
             "road_attributes": road_attributes,
             "trip_score": trip_score,
-            "rest_stop_candidates": _sample_route(
-                (route.get("polyline") or {}).get("encodedPolyline"),
-                rest_fractions,
-            ),
+            "rest_stop_candidates": rest_candidates,
             "itinerary": _build_itinerary(
                 departure,
                 duration_seconds,
