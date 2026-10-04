@@ -5,6 +5,7 @@ import math
 from typing import Any
 
 from app.services.google_routes import compute_route
+from app.services.road_intelligence import analyze_route, score_trip
 
 EMISSION_TYPES = {"GASOLINE", "DIESEL", "HYBRID", "ELECTRIC"}
 
@@ -146,6 +147,14 @@ async def plan_trip(request: Any) -> dict[str, Any]:
         rest_count = min(3, max(0, math.ceil(duration_seconds / max_block) - 1))
         rest_fractions = [(i + 1) / (rest_count + 1) for i in range(rest_count)]
 
+        intelligence = analyze_route(route)
+        trip_score = score_trip(
+            intelligence,
+            distance_km,
+            toll_available=toll_amount is not None,
+            fuel_cost_available=user_cost is not None,
+        )
+
         routes.append({
             "route_index": route_index,
             "label": (route.get("routeLabels") or [None])[0],
@@ -168,6 +177,8 @@ async def plan_trip(request: Any) -> dict[str, Any]:
                 "unit": "kWh" if request.emission_type == "ELECTRIC" else "L",
                 "estimated_cost": round(user_cost, 2) if user_cost is not None else None,
             },
+            "road_intelligence": intelligence,
+            "trip_score": trip_score,
             "rest_stop_candidates": _sample_route(
                 (route.get("polyline") or {}).get("encodedPolyline"),
                 rest_fractions,
