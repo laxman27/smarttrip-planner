@@ -191,6 +191,27 @@ async def plan_trip(request: Any) -> dict[str, Any]:
             ),
         })
 
+    # Rank alternatives using the transparent trip score first, then cost and distance.
+    # This never invents road-quality data; unavailable components simply do not affect the ranking.
+    ranked = sorted(
+        routes,
+        key=lambda item: (
+            -float(item["trip_score"]["overall_score"]),
+            float(item["energy"].get("estimated_cost") or 0) + float(item["toll"].get("amount") or 0),
+            float(item["distance_km"]),
+        ),
+    )
+    for rank, item in enumerate(ranked, start=1):
+        item["recommendation_rank"] = rank
+        score = float(item["trip_score"]["overall_score"])
+        if rank == 1:
+            item["recommendation"] = "recommended"
+            item["recommendation_reason"] = "Highest overall traffic, safety and data-completeness score among returned alternatives."
+        else:
+            item["recommendation"] = "alternative"
+            item["recommendation_reason"] = "Alternative route; ranked below the recommended route using the same transparent scoring method."
+
+    routes = ranked
     primary = routes[0]
     total_cost = None
     if primary["toll"]["amount"] is not None or primary["energy"]["estimated_cost"] is not None:
@@ -215,6 +236,10 @@ async def plan_trip(request: Any) -> dict[str, Any]:
         },
         "primary_route": primary,
         "routes": routes,
+        "route_ranking": {
+            "recommended_route_index": primary["route_index"],
+            "method": "Highest overall score, then lowest estimated toll+energy cost, then shortest distance.",
+        },
         "estimated_trip_cost": {
             "amount": total_cost,
             "currency": request.currency,
