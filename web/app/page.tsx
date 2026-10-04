@@ -15,6 +15,8 @@ type Prediction = {
 };
 
 type Place = { placeId: string; label: string };
+type User = { id: number; email: string; display_name?: string | null };
+type SavedTrip = { id: number; name: string; start_label: string; destination_label: string; departure_at: string; vehicle_type: string; preferences?: Record<string, unknown>; created_at: string };
 
 type Route = {
   distanceMeters?: number;
@@ -180,8 +182,18 @@ export default function Home() {
   const [stopsLoading, setStopsLoading] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authName, setAuthName] = useState("");
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [savedTrips, setSavedTrips] = useState<SavedTrip[]>([]);
+  const [savedTripsLoading, setSavedTripsLoading] = useState(false);
+  const [saveTripLoading, setSaveTripLoading] = useState(false);
 
   useEffect(() => {
+    if (localStorage.getItem("smarttrip-token")) void loadCurrentUser();
     if (!sessionStorage.getItem("smarttrip-place-session")) {
       sessionStorage.setItem("smarttrip-place-session", crypto.randomUUID());
     }
@@ -189,6 +201,100 @@ export default function Home() {
     const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
     setDepartureDate(local.toISOString().slice(0, 10));
   }, []);
+
+  function authHeaders() {
+    const token = localStorage.getItem("smarttrip-token");
+    return token ? { Authorization: "Bearer " + token } : {};
+  }
+
+  async function loadSavedTrips() {
+    const token = localStorage.getItem("smarttrip-token");
+    if (!token) return;
+    setSavedTripsLoading(true);
+    try {
+      const response = await fetch(API + "/api/v1/trips/saved", { headers: authHeaders() });
+      if (!response.ok) throw new Error();
+      const data = await response.json();
+      setSavedTrips(data.trips ?? data ?? []);
+    } catch { setSavedTrips([]); }
+    finally { setSavedTripsLoading(false); }
+  }
+
+  async function loadCurrentUser() {
+    const token = localStorage.getItem("smarttrip-token");
+    if (!token) return;
+    try {
+      const response = await fetch(API + "/api/v1/auth/me", { headers: authHeaders() });
+      if (!response.ok) throw new Error();
+      setUser(await response.json());
+      await loadSavedTrips();
+    } catch {
+      localStorage.removeItem("smarttrip-token");
+      setUser(null);
+      setSavedTrips([]);
+    }
+  }
+
+  async function submitAuth(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    setAuthLoading(true);
+    try {
+      const endpoint = authMode === "login" ? "/api/v1/auth/login" : "/api/v1/auth/register";
+      const body = authMode === "login"
+        ? { email: authEmail.trim(), password: authPassword }
+        : { email: authEmail.trim(), password: authPassword, display_name: authName.trim() || undefined };
+      const response = await fetch(API + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Authentication failed.");
+      if (!data.access_token) throw new Error("Authentication succeeded but no access token was returned.");
+      localStorage.setItem("smarttrip-token", data.access_token);
+      setAuthEmail(""); setAuthPassword(""); setAuthName("");
+      await loadCurrentUser();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Authentication failed.");
+    } finally { setAuthLoading(false); }
+  }
+
+  function logout() {
+    localStorage.removeItem("smarttrip-token");
+    setUser(null);
+    setSavedTrips([]);
+  }
+
+  async function saveCurrentTrip() {
+    if (!user) { setError("Sign in before saving a trip."); return; }
+    if (!origin?.label || !destination?.label) { setError("Complete the trip details before saving."); return; }
+    setSaveTripLoading(true); setError("");
+    try {
+      const response = await fetch(API + "/api/v1/trips/saved", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({
+          name: origin.label + " → " + destination.label,
+          start_label: origin.label,
+          destination_label: destination.label,
+          departure_at: isoForDateTime(departureDate, departureTime),
+          vehicle_type: vehicleType,
+          preferences: { emission_type: emissionType, fuel_efficiency: Number(efficiency), fuel_price_per_unit: Number(fuelPrice), avoid_tolls: avoidTolls, avoid_highways: avoidHighways, max_drive_hours: Number(maxDriveHours), break_minutes: 20 }
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Unable to save trip.");
+      await loadSavedTrips();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save trip.");
+    } finally { setSaveTripLoading(false); }
+  }
+
+  async function deleteSavedTrip(id: number) {
+    try {
+      const response = await fetch(API + "/api/v1/trips/saved/" + id, { method: "DELETE", headers: authHeaders() });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Unable to delete saved trip.");
+      setSavedTrips((current) => current.filter((trip) => trip.id !== id));
+    } catch (err) { setError(err instanceof Error ? err.message : "Unable to delete saved trip."); }
+  }
 
   async function planTrip(event: React.FormEvent) {
     event.preventDefault();
@@ -282,7 +388,9 @@ export default function Home() {
           Build a real traffic-aware road-trip plan with vehicle cost and driver-rest planning.
         </p>
 
-        <form onSubmit={planTrip} style={{ background: "#fff", padding: 24, borderRadius: 18, marginTop: 28, boxShadow: "0 10px 40px rgba(20,30,50,.06)" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(280px,360px)", gap: 18, marginTop: 28, alignItems: "start" }}>
+          <div>
+        <form onSubmit={planTrip} style={{ background: "#fff", padding: 24, borderRadius: 18, boxShadow: "0 10px 40px rgba(20,30,50,.06)" }}>
           <div style={{ display: "grid", gap: 16 }}>
             <SearchBox label="Start" value={originText}
               onChange={(value) => { setOriginText(value); setOrigin(null); }}
@@ -311,6 +419,40 @@ export default function Home() {
             </button>
           </div>
         </form>
+          </div>
+          <aside style={{ background: "#fff", padding: 20, borderRadius: 18, boxShadow: "0 10px 40px rgba(20,30,50,.06)" }}>
+            {user ? (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                  <div><strong>{user.display_name || user.email}</strong><div style={{ color: "#68707c", fontSize: 13 }}>{user.email}</div></div>
+                  <button type="button" onClick={logout} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d7dbe2", background: "#fff", cursor: "pointer" }}>Logout</button>
+                </div>
+                <h3>Saved trips</h3>
+                <button type="button" onClick={loadSavedTrips} disabled={savedTripsLoading} style={{ width: "100%", padding: 10, borderRadius: 9, border: "1px solid #d7dbe2", background: "#fff" }}>{savedTripsLoading ? "Refreshing…" : "Refresh saved trips"}</button>
+                {savedTrips.length === 0 ? <p style={{ color: "#68707c", fontSize: 14 }}>No saved trips yet.</p> : <div style={{ display: "grid", gap: 9, marginTop: 10 }}>
+                  {savedTrips.map((trip) => <div key={trip.id} style={{ border: "1px solid #e3e6eb", borderRadius: 10, padding: 11 }}>
+                    <strong>{trip.name}</strong>
+                    <div style={{ fontSize: 13, color: "#68707c", marginTop: 4 }}>{new Date(trip.departure_at).toLocaleString()}</div>
+                    <div style={{ fontSize: 13, marginTop: 4 }}>{trip.vehicle_type}</div>
+                    <button type="button" onClick={() => deleteSavedTrip(trip.id)} style={{ marginTop: 8, padding: "6px 9px", borderRadius: 7, border: "1px solid #e3e6eb", background: "#fff" }}>Delete</button>
+                  </div>)}
+                </div>}
+              </>
+            ) : (
+              <>
+                <h2 style={{ marginTop: 0 }}>{authMode === "login" ? "Sign in" : "Create account"}</h2>
+                <p style={{ color: "#68707c", fontSize: 14 }}>Save trips and access them across sessions.</p>
+                <form onSubmit={submitAuth} style={{ display: "grid", gap: 10 }}>
+                  {authMode === "register" && <input value={authName} onChange={(e) => setAuthName(e.target.value)} placeholder="Display name" autoComplete="name" style={{ padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }} />}
+                  <input type="email" required value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="Email" autoComplete="email" style={{ padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }} />
+                  <input type="password" required minLength={10} value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} placeholder="Password (10+ characters)" autoComplete={authMode === "login" ? "current-password" : "new-password"} style={{ padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }} />
+                  <button disabled={authLoading} type="submit" style={{ padding: 11, borderRadius: 9, border: 0, background: "#17191d", color: "#fff" }}>{authLoading ? "Please wait…" : authMode === "login" ? "Sign in" : "Create account"}</button>
+                </form>
+                <button type="button" onClick={() => setAuthMode(authMode === "login" ? "register" : "login")} style={{ marginTop: 10, border: 0, background: "transparent", textDecoration: "underline" }}>{authMode === "login" ? "Create a new account" : "Already have an account? Sign in"}</button>
+              </>
+            )}
+          </aside>
+        </div>
 
         {error && <p role="alert" style={{ color: "#b00020", marginTop: 18 }}>{error}</p>}
 
@@ -395,6 +537,12 @@ export default function Home() {
                       ))}
                     </div>
                   ) : null}
+
+                  {index === 0 && user && (
+                    <button type="button" onClick={saveCurrentTrip} disabled={saveTripLoading} style={{ marginTop: 12, padding: 12, borderRadius: 9, border: 0, background: "#17191d", color: "#fff" }}>
+                      {saveTripLoading ? "Saving trip…" : "Save this trip"}
+                    </button>
+                  )}
 
                   {index === 0 && route.rest_stop_candidates?.length ? (
                     <button type="button" onClick={findStops} disabled={stopsLoading} style={{ marginTop: 12, padding: 12, borderRadius: 9, border: "1px solid #d7dbe2", background: "#fff", cursor: "pointer" }}>
