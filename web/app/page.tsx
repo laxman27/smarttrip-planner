@@ -150,6 +150,8 @@ export default function Home() {
   const [avoidTolls, setAvoidTolls] = useState(false);
   const [avoidHighways, setAvoidHighways] = useState(false);
   const [routes, setRoutes] = useState<Route[]>([]);
+  const [stops, setStops] = useState<Array<{ route_fraction: number; category: string; places: Array<{ id?: string; displayName?: { text?: string }; formattedAddress?: string; googleMapsUri?: string }> }>>([]);
+  const [stopsLoading, setStopsLoading] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -166,6 +168,7 @@ export default function Home() {
     event.preventDefault();
     setError("");
     setRoutes([]);
+    setStops([]);
 
     if (!origin?.placeId || !destination?.placeId) {
       setError("Select both locations from the search suggestions.");
@@ -199,6 +202,29 @@ export default function Home() {
       setError(err instanceof Error ? err.message : "Unable to plan this trip.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function findStops() {
+    const candidates = routes[0]?.rest_stop_candidates;
+    if (!candidates?.length) return;
+    setStopsLoading(true);
+    try {
+      const categories = emissionType === "ELECTRIC"
+        ? ["rest_stop", "restaurant", "ev_charging", "hotel"]
+        : ["rest_stop", "restaurant", "fuel", "hotel"];
+      const response = await fetch(API + "/api/v1/trips/stops", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidates, categories, radius_meters: 5000 }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail ?? "Stop search failed.");
+      setStops(data.stops ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to find nearby stops.");
+    } finally {
+      setStopsLoading(false);
     }
   }
 
@@ -277,6 +303,12 @@ export default function Home() {
                     </div>
                   ) : null}
 
+                  {index === 0 && route.rest_stop_candidates?.length ? (
+                    <button type="button" onClick={findStops} disabled={stopsLoading} style={{ marginTop: 12, padding: 12, borderRadius: 9, border: "1px solid #d7dbe2", background: "#fff", cursor: "pointer" }}>
+                      {stopsLoading ? "Finding real nearby stops…" : "Find fuel, EV, restaurants, hotels & rest stops"}
+                    </button>
+                  ) : null}
+
                   {route.rest_stop_candidates?.length ? (
                     <div style={{ marginTop: 18 }}>
                       <h3>Recommended rest windows</h3>
@@ -288,6 +320,27 @@ export default function Home() {
                       <p style={{ color: "#68707c", fontSize: 13 }}>Use Nearby Search to select an actual fuel station, restaurant, restroom, hospital or hotel at each rest window.</p>
                     </div>
                   ) : null}
+
+                  {index === 0 && stops.length > 0 && (
+                    <div style={{ marginTop: 18 }}>
+                      <h3>Real nearby stop options</h3>
+                      {stops.map((group, groupIndex) => (
+                        <div key={group.category + group.route_fraction + groupIndex} style={{ padding: 10, borderTop: "1px solid #eee" }}>
+                          <strong>{group.category.replace("_", " ")}</strong> · around {Math.round(group.route_fraction * 100)}% of route
+                          {group.places.length === 0 ? (
+                            <div style={{ color: "#68707c", marginTop: 4 }}>No matching places returned in this search radius.</div>
+                          ) : (
+                            group.places.slice(0, 3).map((place, placeIndex) => (
+                              <div key={place.id ?? placeIndex} style={{ marginTop: 6 }}>
+                                {place.googleMapsUri ? <a href={place.googleMapsUri} target="_blank" rel="noreferrer">{place.displayName?.text ?? "Place"}</a> : <span>{place.displayName?.text ?? "Place"}</span>}
+                                {place.formattedAddress && <span style={{ color: "#68707c" }}> · {place.formattedAddress}</span>}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </article>
               ))}
             </div>
