@@ -28,7 +28,8 @@ type Route = {
   estimated_arrival_at?: string;
   toll?: { amount?: number | null; currency?: string | null };
   energy?: { user_estimated_units?: number | null; unit?: string; estimated_cost?: number | null };
-  road_intelligence?: { traffic?: { congestion?: string; traffic_score?: number; estimated_average_speed_kmh?: number }; safety?: { score?: number; warnings_count?: number }; road_quality?: { score?: number | null; status?: string } };\n  trip_score?: { overall_score?: number; grade?: string; components?: { traffic?: number; safety?: number; data_completeness?: number } };\n  itinerary?: Array<{
+  road_intelligence?: { traffic?: { congestion?: string; traffic_score?: number; estimated_average_speed_kmh?: number }; safety?: { score?: number; warnings_count?: number }; road_quality?: { score?: number | null; status?: string } };
+  trip_score?: { overall_score?: number; grade?: string; components?: { traffic?: number; safety?: number; data_completeness?: number } };\n  itinerary?: Array<{
     day: number;
     start_time: string;
     drive_hours: number;
