@@ -30,6 +30,28 @@ type Route = {
   energy?: { user_estimated_units?: number | null; unit?: string; estimated_cost?: number | null };
   road_intelligence?: { traffic?: { congestion?: string; traffic_score?: number; estimated_average_speed_kmh?: number }; safety?: { score?: number; warnings_count?: number }; road_quality?: { score?: number | null; status?: string } };
   trip_score?: { overall_score?: number; grade?: string; components?: { traffic?: number; safety?: number; data_completeness?: number } };
+  road_attributes?: {
+    coverage?: number;
+    sections?: Array<{
+      section_index: number;
+      route_fraction?: number;
+      score?: number | null;
+      highway?: string | null;
+      surface?: string | null;
+      smoothness?: string | null;
+      maxspeed?: string | null;
+      lanes?: string | null;
+      lit?: string | null;
+      confidence?: number;
+      status?: string;
+      traffic_status?: string;
+      traffic_score?: number;
+      traffic_source?: string;
+      safety_signal?: string;
+      safety_score?: number;
+      safety_source?: string;
+    }>;
+  };
   itinerary?: Array<{
     day: number;
     start_time: string;
