@@ -259,6 +259,18 @@ export default function Home() {
     duration: route.traffic_duration_seconds ? route.traffic_duration_seconds + "s" : undefined,
     staticDuration: route.typical_duration_seconds ? route.typical_duration_seconds + "s" : undefined,
     polyline: { encodedPolyline: route.polyline ?? "" },
+    roadSections: (route.road_attributes?.sections ?? [])
+      .filter((section) => section.latitude != null && section.longitude != null)
+      .map((section) => ({
+        latitude: section.latitude as number,
+        longitude: section.longitude as number,
+        score: section.score,
+        route_fraction: section.route_fraction,
+        traffic_status: section.traffic_status,
+        traffic_score: section.traffic_score,
+        safety_signal: section.safety_signal,
+        safety_score: section.safety_score,
+      })),
   }));
 
   return (
