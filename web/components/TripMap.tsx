@@ -3,9 +3,24 @@
 import { useEffect, useRef } from "react";
 import { importLibrary, setOptions } from "@googlemaps/js-api-loader";
 
+type RoadSection = {
+  latitude: number;
+  longitude: number;
+  score?: number | null;
+  route_fraction?: number;
+};
+
 type MapRoute = {
   polyline?: { encodedPolyline?: string };
+  roadSections?: RoadSection[];
 };
+
+function sectionColor(score?: number | null) {
+  if (score == null) return "#6b7280";
+  if (score >= 80) return "#15803d";
+  if (score >= 60) return "#ca8a04";
+  return "#dc2626";
+}
 
 export default function TripMap({ routes }: { routes: MapRoute[] }) {
   const element = useRef<HTMLDivElement>(null);
@@ -47,17 +62,30 @@ export default function TripMap({ routes }: { routes: MapRoute[] }) {
           strokeWeight: index === 0 ? 6 : 4,
           zIndex: index === 0 ? 2 : 1,
         });
+
+        if (index === 0) {
+          route.roadSections?.forEach((section) => {
+            const position = { lat: section.latitude, lng: section.longitude };
+            bounds.extend(position);
+            new google.maps.Circle({
+              map,
+              center: position,
+              radius: 450,
+              strokeOpacity: 0.75,
+              strokeWeight: 1,
+              fillColor: sectionColor(section.score),
+              fillOpacity: 0.18,
+              zIndex: 3,
+            });
+          });
+        }
       });
 
-      if (!bounds.isEmpty()) {
-        map.fitBounds(bounds, 50);
-      }
+      if (!bounds.isEmpty()) map.fitBounds(bounds, 50);
     }
 
     render().catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [routes]);
 
   if (!process.env.NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY) {
