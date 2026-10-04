@@ -82,536 +82,196 @@ function createPlaceSessionToken() {
       bytes[8] = (bytes[8] & 0x3f) | 0x80;
       const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
       return (
-        hex.slice(0, 8) + "-" +
-        hex.slice(8, 12) + "-" +
-        hex.slice(12, 16) + "-" +
-        hex.slice(16, 20) + "-" +
-        hex.slice(20)
-      );
-    }
-  }
-  return "smarttrip-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
-}
-
-function SearchBox({
-  label, value, onChange, onSelect,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  onSelect: (place: Place) => void;
-}) {
-  const [suggestions, setSuggestions] = useState<Prediction[]>([]);
-  const [open, setOpen] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
-
-  function search(next: string) {
-    onChange(next);
-    if (timer.current) clearTimeout(timer.current);
-    if (next.trim().length < 2) {
-      setSuggestions([]);
-      setOpen(false);
-      return;
-    }
-
-    timer.current = setTimeout(async () => {
-      try {
-        const token = sessionStorage.getItem("smarttrip-place-session") ?? createPlaceSessionToken();
-        sessionStorage.setItem("smarttrip-place-session", token);
-        const response = await fetch(API + "/api/v1/places/autocomplete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: next.trim(), session_token: token }),
-        });
-        if (!response.ok) throw new Error();
-        const data = await response.json();
-        setSuggestions(data.suggestions ?? []);
-        setOpen(true);
-      } catch {
-        setSuggestions([]);
-      }
-    }, 250);
-  }
-
-  return (
-    <div style={{ position: "relative" }}>
-      <label style={{ display: "block", fontWeight: 650, marginBottom: 7 }}>{label}</label>
-      <input
-        value={value}
-        onChange={(e) => search(e.target.value)}
-        onFocus={() => suggestions.length > 0 && setOpen(true)}
-        placeholder={label === "Start" ? "Search starting location" : "Search destination"}
-        required
-        style={{ boxSizing: "border-box", width: "100%", padding: 14, borderRadius: 10, border: "1px solid #d7dbe2", fontSize: 16 }}
-      />
-      {open && suggestions.length > 0 && (
-        <div style={{ position: "absolute", zIndex: 10, left: 0, right: 0, top: "100%", background: "#fff", border: "1px solid #ddd", borderRadius: 10, marginTop: 4, overflow: "hidden", boxShadow: "0 8px 30px rgba(0,0,0,.12)" }}>
-          {suggestions.map((item, index) => {
-            const prediction = item.placePrediction;
-            if (!prediction?.placeId) return null;
-            const main = prediction.structuredFormat?.mainText?.text ?? prediction.text?.text ?? "";
-            const secondary = prediction.structuredFormat?.secondaryText?.text ?? "";
-            return (
-              <button
-                type="button"
-                key={prediction.placeId + index}
-                onClick={() => {
-                  onSelect({ placeId: prediction.placeId!, label: main + (secondary ? ", " + secondary : "") });
-                  setOpen(false);
-                }}
-                style={{ display: "block", width: "100%", textAlign: "left", border: 0, background: "#fff", padding: "13px 15px", cursor: "pointer" }}
-              >
-                <strong>{main}</strong>
-                {secondary && <span style={{ display: "block", color: "#68707c", marginTop: 3 }}>{secondary}</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function isoForDateTime(date: string, time: string) {
-  return new Date(date + "T" + time).toISOString();
-}
-
-function formatSeconds(seconds?: number) {
-  if (!seconds) return "Unavailable";
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.round((seconds % 3600) / 60);
-  return hours ? hours + "h " + minutes + "m" : minutes + "m";
-}
-
-export default function Home() {
-  const [origin, setOrigin] = useState<Place | null>(null);
-  const [destination, setDestination] = useState<Place | null>(null);
-  const [originText, setOriginText] = useState("");
-  const [destinationText, setDestinationText] = useState("");
-  const [departureDate, setDepartureDate] = useState("");
-  const [departureTime, setDepartureTime] = useState("08:00");
-  const [vehicleType, setVehicleType] = useState("car");
-  const [emissionType, setEmissionType] = useState("GASOLINE");
-  const [efficiency, setEfficiency] = useState("12");
-  const [fuelPrice, setFuelPrice] = useState("100");
-  const [maxDriveHours, setMaxDriveHours] = useState("4");
-  const [avoidTolls, setAvoidTolls] = useState(false);
-  const [avoidHighways, setAvoidHighways] = useState(false);
-  const [routes, setRoutes] = useState<Route[]>([]);
-  const [stops, setStops] = useState<Array<{ route_fraction: number; category: string; places: Array<{ id?: string; displayName?: { text?: string }; formattedAddress?: string; googleMapsUri?: string }> }>>([]);
-  const [stopsLoading, setStopsLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [authEmail, setAuthEmail] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
-  const [authName, setAuthName] = useState("");
-  const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
-  const [savedTrips, setSavedTrips] = useState<SavedTrip[]>([]);
-  const [savedTripsLoading, setSavedTripsLoading] = useState(false);
-  const [saveTripLoading, setSaveTripLoading] = useState(false);
-
-  useEffect(() => {
-    if (localStorage.getItem("smarttrip-token")) void loadCurrentUser();
-    if (!sessionStorage.getItem("smarttrip-place-session")) {
-      sessionStorage.setItem("smarttrip-place-session", createPlaceSessionToken());
-    }
-    const now = new Date();
-    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
-    setDepartureDate(local.toISOString().slice(0, 10));
-  }, []);
-
-  function authHeaders() {
-    const token = localStorage.getItem("smarttrip-token");
-    return token ? { Authorization: "Bearer " + token } : {};
-  }
-
-  async function loadSavedTrips() {
-    const token = localStorage.getItem("smarttrip-token");
-    if (!token) return;
-    setSavedTripsLoading(true);
-    try {
-      const response = await fetch(API + "/api/v1/trips/saved", { headers: authHeaders() });
-      if (!response.ok) throw new Error();
-      const data = await response.json();
-      setSavedTrips(data.trips ?? data ?? []);
-    } catch { setSavedTrips([]); }
-    finally { setSavedTripsLoading(false); }
-  }
-
-  async function loadCurrentUser() {
-    const token = localStorage.getItem("smarttrip-token");
-    if (!token) return;
-    try {
-      const response = await fetch(API + "/api/v1/auth/me", { headers: authHeaders() });
-      if (!response.ok) throw new Error();
-      setUser(await response.json());
-      await loadSavedTrips();
-    } catch {
-      localStorage.removeItem("smarttrip-token");
-      setUser(null);
-      setSavedTrips([]);
-    }
-  }
-
-  async function submitAuth(event: React.FormEvent) {
-    event.preventDefault();
-    setError("");
-    setAuthLoading(true);
-    try {
-      const endpoint = authMode === "login" ? "/api/v1/auth/login" : "/api/v1/auth/register";
-      const body = authMode === "login"
-        ? { email: authEmail.trim(), password: authPassword }
-        : { email: authEmail.trim(), password: authPassword, display_name: authName.trim() || undefined };
-      const response = await fetch(API + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Authentication failed.");
-      if (!data.access_token) throw new Error("Authentication succeeded but no access token was returned.");
-      localStorage.setItem("smarttrip-token", data.access_token);
-      setAuthEmail(""); setAuthPassword(""); setAuthName("");
-      await loadCurrentUser();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Authentication failed.");
-    } finally { setAuthLoading(false); }
-  }
-
-  function logout() {
-    localStorage.removeItem("smarttrip-token");
-    setUser(null);
-    setSavedTrips([]);
-  }
-
-  async function saveCurrentTrip() {
-    if (!user) { setError("Sign in before saving a trip."); return; }
-    if (!origin?.label || !destination?.label) { setError("Complete the trip details before saving."); return; }
-    setSaveTripLoading(true); setError("");
-    try {
-      const response = await fetch(API + "/api/v1/trips/saved", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({
-          name: origin.label + " → " + destination.label,
-          start_label: origin.label,
-          destination_label: destination.label,
-          departure_at: isoForDateTime(departureDate, departureTime),
-          vehicle_type: vehicleType,
-          preferences: { emission_type: emissionType, fuel_efficiency: Number(efficiency), fuel_price_per_unit: Number(fuelPrice), avoid_tolls: avoidTolls, avoid_highways: avoidHighways, max_drive_hours: Number(maxDriveHours), break_minutes: 20 }
-        })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Unable to save trip.");
-      await loadSavedTrips();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to save trip.");
-    } finally { setSaveTripLoading(false); }
-  }
-
-  async function deleteSavedTrip(id: number) {
-    try {
-      const response = await fetch(API + "/api/v1/trips/saved/" + id, { method: "DELETE", headers: authHeaders() });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Unable to delete saved trip.");
-      setSavedTrips((current) => current.filter((trip) => trip.id !== id));
-    } catch (err) { setError(err instanceof Error ? err.message : "Unable to delete saved trip."); }
-  }
-
-  async function planTrip(event: React.FormEvent) {
-    event.preventDefault();
-    setError("");
-    setRoutes([]);
-    setStops([]);
-
-    if (!origin?.placeId || !destination?.placeId) {
-      setError("Select both locations from the search suggestions.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const response = await fetch(API + "/api/v1/trips/plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          origin_place_id: origin.placeId,
-          destination_place_id: destination.placeId,
-          departure_at: isoForDateTime(departureDate, departureTime),
-          vehicle_type: vehicleType,
-          emission_type: emissionType,
-          fuel_efficiency: Number(efficiency),
-          fuel_price_per_unit: Number(fuelPrice),
-          currency: "INR",
-          avoid_tolls: avoidTolls,
-          avoid_highways: avoidHighways,
-          max_drive_hours: Number(maxDriveHours),
-          break_minutes: 20,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail ?? "Trip planning failed.");
-      setRoutes(data.routes ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to plan this trip.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function findStops() {
-    const candidates = routes[0]?.rest_stop_candidates;
-    if (!candidates?.length) return;
-    setStopsLoading(true);
-    try {
-      const categories = emissionType === "ELECTRIC"
-        ? ["rest_stop", "restaurant", "ev_charging", "hotel"]
-        : ["rest_stop", "restaurant", "fuel", "hotel"];
-      const response = await fetch(API + "/api/v1/trips/stops", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ candidates, categories, radius_meters: 5000, max_results_per_category: 3 }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail ?? "Stop search failed.");
-      setStops(data.stops ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to find nearby stops.");
-    } finally {
-      setStopsLoading(false);
-    }
-  }
-
-  const mapRoutes = routes.map((route) => ({
-    distanceMeters: (route.distance_km ?? 0) * 1000,
-    duration: route.traffic_duration_seconds ? route.traffic_duration_seconds + "s" : undefined,
-    staticDuration: route.typical_duration_seconds ? route.typical_duration_seconds + "s" : undefined,
-    polyline: { encodedPolyline: route.polyline ?? "" },
-    roadSections: (route.road_attributes?.sections ?? [])
-      .filter((section) => section.latitude != null && section.longitude != null)
-      .map((section) => ({
-        latitude: section.latitude as number,
-        longitude: section.longitude as number,
-        score: section.score,
-        route_fraction: section.route_fraction,
-        traffic_status: section.traffic_status,
-        traffic_score: section.traffic_score,
-        safety_signal: section.safety_signal,
-        safety_score: section.safety_score,
-      })),
-  }));
-
-  return (
-    <main style={{ minHeight: "100vh", background: "#f5f7fa", padding: "48px 20px" }}>
-      <section style={{ maxWidth: 1000, margin: "0 auto" }}>
-        <p style={{ fontWeight: 800, letterSpacing: 2 }}>SMARTTRIP</p>
-        <h1 style={{ fontSize: 44, margin: "8px 0" }}>Plan the road. Enjoy the journey.</h1>
-        <p style={{ color: "#5d6570", fontSize: 18 }}>
-          Build a real traffic-aware road-trip plan with vehicle cost and driver-rest planning.
-        </p>
-
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(280px,360px)", gap: 18, marginTop: 28, alignItems: "start" }}>
+    <main className="app-shell">
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-mark">S</div>
           <div>
-        <form onSubmit={planTrip} style={{ background: "#fff", padding: 24, borderRadius: 18, boxShadow: "0 10px 40px rgba(20,30,50,.06)" }}>
-          <div style={{ display: "grid", gap: 16 }}>
-            <SearchBox label="Start" value={originText}
-              onChange={(value) => { setOriginText(value); setOrigin(null); }}
-              onSelect={(place) => { setOrigin(place); setOriginText(place.label); }} />
-            <SearchBox label="Destination" value={destinationText}
-              onChange={(value) => { setDestinationText(value); setDestination(null); }}
-              onSelect={(place) => { setDestination(place); setDestinationText(place.label); }} />
+            <div className="brand-name">SmartTrip</div>
+            <div className="brand-subtitle">Intelligent road travel</div>
+          </div>
+        </div>
+        <div className="topbar-actions">
+          <span className="status-pill"><span className="status-dot" /> Live route planning</span>
+          {user ? (
+            <button className="ghost-btn" type="button" onClick={logout}>Sign out</button>
+          ) : (
+            <button className="ghost-btn" type="button" onClick={() => document.getElementById("account-panel")?.scrollIntoView({ behavior: "smooth" })}>Sign in</button>
+          )}
+        </div>
+      </header>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
-              <label>Departure date<input type="date" value={departureDate} onChange={(e) => setDepartureDate(e.target.value)} required style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 6, padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }} /></label>
-              <label>Departure time<input type="time" value={departureTime} onChange={(e) => setDepartureTime(e.target.value)} required style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 6, padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }} /></label>
-              <label>Vehicle<select value={vehicleType} onChange={(e) => setVehicleType(e.target.value)} style={{ display: "block", width: "100%", marginTop: 6, padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }}><option value="car">Car</option><option value="suv">SUV</option><option value="motorcycle">Motorcycle</option><option value="van">Van</option><option value="ev">EV</option></select></label>
-              <label>Energy type<select value={emissionType} onChange={(e) => setEmissionType(e.target.value)} style={{ display: "block", width: "100%", marginTop: 6, padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }}><option value="GASOLINE">Petrol</option><option value="DIESEL">Diesel</option><option value="HYBRID">Hybrid</option><option value="ELECTRIC">Electric</option></select></label>
-              <label>Efficiency<input type="number" min="1" step="0.1" value={efficiency} onChange={(e) => setEfficiency(e.target.value)} placeholder="L/100km or kWh/100km" style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 6, padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }} /></label>
-              <label>Price / unit (₹)<input type="number" min="0" step="0.01" value={fuelPrice} onChange={(e) => setFuelPrice(e.target.value)} style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 6, padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }} /></label>
-              <label>Max driving hours<input type="number" min="1" max="12" step="0.5" value={maxDriveHours} onChange={(e) => setMaxDriveHours(e.target.value)} style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 6, padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }} /></label>
+      <section className="hero">
+        <div className="hero-copy">
+          <span className="eyebrow">SMARTER JOURNEYS · INDIA</span>
+          <h1>Plan the journey.<br /><span>Enjoy the destination.</span></h1>
+          <p>Real routes, traffic-aware ETAs, fuel costs, road intelligence and smart rest planning in one place.</p>
+        </div>
+        <div className="hero-badge">
+          <div className="hero-badge-icon">⌁</div>
+          <div><strong>Trip intelligence</strong><span>Route • traffic • cost • rest</span></div>
+        </div>
+      </section>
+
+      <section className="planner-grid">
+        <div className="planner-card">
+          <div className="card-heading">
+            <div>
+              <span className="section-kicker">NEW TRIP</span>
+              <h2>Where are you going?</h2>
+            </div>
+            <span className="step-badge">1 / 1</span>
+          </div>
+
+          <form onSubmit={planTrip}>
+            <div className="route-inputs">
+              <SearchBox label="Start" value={originText}
+                onChange={(value) => { setOriginText(value); setOrigin(null); }}
+                onSelect={(place) => { setOrigin(place); setOriginText(place.label); }} />
+              <div className="route-line" aria-hidden="true"><span>↓</span></div>
+              <SearchBox label="Destination" value={destinationText}
+                onChange={(value) => { setDestinationText(value); setDestination(null); }}
+                onSelect={(place) => { setDestination(place); setDestinationText(place.label); }} />
             </div>
 
-            <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-              <label><input type="checkbox" checked={avoidTolls} onChange={(e) => setAvoidTolls(e.target.checked)} /> Avoid tolls</label>
-              <label><input type="checkbox" checked={avoidHighways} onChange={(e) => setAvoidHighways(e.target.checked)} /> Avoid highways</label>
+            <div className="field-grid">
+              <label className="field"><span>Departure date</span><input type="date" value={departureDate} onChange={(e) => setDepartureDate(e.target.value)} required /></label>
+              <label className="field"><span>Departure time</span><input type="time" value={departureTime} onChange={(e) => setDepartureTime(e.target.value)} required /></label>
+              <label className="field"><span>Vehicle</span><select value={vehicleType} onChange={(e) => setVehicleType(e.target.value)}><option value="car">Car</option><option value="suv">SUV</option><option value="motorcycle">Motorcycle</option><option value="van">Van</option><option value="ev">EV</option></select></label>
+              <label className="field"><span>Energy</span><select value={emissionType} onChange={(e) => setEmissionType(e.target.value)}><option value="GASOLINE">Petrol</option><option value="DIESEL">Diesel</option><option value="HYBRID">Hybrid</option><option value="ELECTRIC">Electric</option></select></label>
+              <label className="field"><span>Efficiency</span><input type="number" min="1" step="0.1" value={efficiency} onChange={(e) => setEfficiency(e.target.value)} placeholder="L/100km" /></label>
+              <label className="field"><span>Price / unit <small>₹</small></span><input type="number" min="0" step="0.01" value={fuelPrice} onChange={(e) => setFuelPrice(e.target.value)} /></label>
+              <label className="field"><span>Max driving <small>hours</small></span><input type="number" min="1" max="12" step="0.5" value={maxDriveHours} onChange={(e) => setMaxDriveHours(e.target.value)} /></label>
             </div>
 
-            <button disabled={loading} type="submit" style={{ padding: 14, borderRadius: 10, border: 0, background: "#17191d", color: "#fff", cursor: "pointer", fontSize: 16 }}>
-              {loading ? "Building live trip plan…" : "Plan complete trip"}
+            <div className="preference-row">
+              <label className="toggle"><input type="checkbox" checked={avoidTolls} onChange={(e) => setAvoidTolls(e.target.checked)} /><span />Avoid tolls</label>
+              <label className="toggle"><input type="checkbox" checked={avoidHighways} onChange={(e) => setAvoidHighways(e.target.checked)} /><span />Avoid highways</label>
+            </div>
+
+            <button className="primary-btn" disabled={loading} type="submit">
+              <span>{loading ? "Building your live trip…" : "Plan my trip"}</span><b>→</b>
             </button>
-          </div>
-        </form>
-          </div>
-          <aside style={{ background: "#fff", padding: 20, borderRadius: 18, boxShadow: "0 10px 40px rgba(20,30,50,.06)" }}>
-            {user ? (
-              <>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                  <div><strong>{user.display_name || user.email}</strong><div style={{ color: "#68707c", fontSize: 13 }}>{user.email}</div></div>
-                  <button type="button" onClick={logout} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d7dbe2", background: "#fff", cursor: "pointer" }}>Logout</button>
-                </div>
-                <h3>Saved trips</h3>
-                <button type="button" onClick={loadSavedTrips} disabled={savedTripsLoading} style={{ width: "100%", padding: 10, borderRadius: 9, border: "1px solid #d7dbe2", background: "#fff" }}>{savedTripsLoading ? "Refreshing…" : "Refresh saved trips"}</button>
-                {savedTrips.length === 0 ? <p style={{ color: "#68707c", fontSize: 14 }}>No saved trips yet.</p> : <div style={{ display: "grid", gap: 9, marginTop: 10 }}>
-                  {savedTrips.map((trip) => <div key={trip.id} style={{ border: "1px solid #e3e6eb", borderRadius: 10, padding: 11 }}>
-                    <strong>{trip.name}</strong>
-                    <div style={{ fontSize: 13, color: "#68707c", marginTop: 4 }}>{new Date(trip.departure_at).toLocaleString()}</div>
-                    <div style={{ fontSize: 13, marginTop: 4 }}>{trip.vehicle_type}</div>
-                    <button type="button" onClick={() => deleteSavedTrip(trip.id)} style={{ marginTop: 8, padding: "6px 9px", borderRadius: 7, border: "1px solid #e3e6eb", background: "#fff" }}>Delete</button>
-                  </div>)}
-                </div>}
-              </>
-            ) : (
-              <>
-                <h2 style={{ marginTop: 0 }}>{authMode === "login" ? "Sign in" : "Create account"}</h2>
-                <p style={{ color: "#68707c", fontSize: 14 }}>Save trips and access them across sessions.</p>
-                <form onSubmit={submitAuth} style={{ display: "grid", gap: 10 }}>
-                  {authMode === "register" && <input value={authName} onChange={(e) => setAuthName(e.target.value)} placeholder="Display name" autoComplete="name" style={{ padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }} />}
-                  <input type="email" required value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="Email" autoComplete="email" style={{ padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }} />
-                  <input type="password" required minLength={10} value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} placeholder="Password (10+ characters)" autoComplete={authMode === "login" ? "current-password" : "new-password"} style={{ padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }} />
-                  <button disabled={authLoading} type="submit" style={{ padding: 11, borderRadius: 9, border: 0, background: "#17191d", color: "#fff" }}>{authLoading ? "Please wait…" : authMode === "login" ? "Sign in" : "Create account"}</button>
-                </form>
-                <button type="button" onClick={() => setAuthMode(authMode === "login" ? "register" : "login")} style={{ marginTop: 10, border: 0, background: "transparent", textDecoration: "underline" }}>{authMode === "login" ? "Create a new account" : "Already have an account? Sign in"}</button>
-              </>
-            )}
-          </aside>
+          </form>
         </div>
 
-        {error && <p role="alert" style={{ color: "#b00020", marginTop: 18 }}>{error}</p>}
-
-        {routes.length > 0 && (
-          <>
-            <div style={{ marginTop: 24 }}><TripMap routes={mapRoutes.map((item, index) => ({
-              ...item,
-              roadSections: (routes[index]?.road_attributes?.sections ?? [])
-                .filter((section) => section.latitude != null && section.longitude != null)
-                .map((section) => ({
-                  latitude: section.latitude as number,
-                  longitude: section.longitude as number,
-                  score: section.score,
-                  route_fraction: section.route_fraction,
-                  traffic_status: section.traffic_status,
-                  traffic_score: section.traffic_score,
-                  safety_signal: section.safety_signal,
-                  safety_score: section.safety_score,
-                })),
-            }))} /></div>
-            <div style={{ display: "grid", gap: 14, marginTop: 24 }}>
-              {routes.map((route, index) => (
-                <article key={index} style={{ background: "#fff", padding: 20, borderRadius: 14 }}>
-                  <h2 style={{ marginTop: 0 }}>Route {index + 1} {route.label ? "· " + route.label : ""}</h2>
-                  {route.description && <p>{route.description}</p>}
-                  <p><strong>Distance:</strong> {(route.distance_km ?? 0).toFixed(1)} km</p>
-                  <p><strong>Traffic-aware ETA:</strong> {formatSeconds(route.traffic_duration_seconds)}</p>
-                  <p><strong>Arrival:</strong> {route.estimated_arrival_at ? new Date(route.estimated_arrival_at).toLocaleString() : "Unavailable"}</p>
-                  <p><strong>Tolls:</strong> {route.toll?.available ? "₹" + route.toll.amount?.toFixed(2) : "No estimated toll price returned"}</p>
-                  <p><strong>Fuel/energy:</strong> {route.energy?.user_estimated_units != null ? route.energy.user_estimated_units.toFixed(2) + " " + route.energy.unit : "Not calculated"}</p>
-                  <p><strong>Estimated trip cost:</strong> {route.toll?.amount != null || route.energy?.estimated_cost != null ? "₹" + ((route.toll?.amount ?? 0) + (route.energy?.estimated_cost ?? 0)).toFixed(2) : "Unavailable"}</p>
-                  <div style={{ marginTop: 16, padding: 14, borderRadius: 12, background: "#f5f7fa" }}>
-                    <strong>Trip intelligence</strong>
-                    <p style={{ marginBottom: 5 }}>Overall score: <strong>{route.trip_score?.overall_score ?? "—"}/100</strong> · {route.trip_score?.grade ?? "unavailable"}</p>
-                    <p style={{ margin: "5px 0" }}>Traffic: {route.road_intelligence?.traffic?.congestion ?? "—"} · {route.road_intelligence?.traffic?.traffic_score ?? "—"}/100</p>
-                    <p style={{ margin: "5px 0" }}>Safety signal: {route.road_intelligence?.safety?.score ?? "—"}/100</p>
-                    <p style={{ margin: "5px 0" }}>Average traffic speed: {route.road_intelligence?.traffic?.estimated_average_speed_kmh != null ? route.road_intelligence.traffic.estimated_average_speed_kmh + " km/h" : "Unavailable"}</p>
-                    <p style={{ margin: "5px 0", color: "#68707c", fontSize: 13 }}>Road quality: {route.road_intelligence?.road_quality?.status ?? "Dedicated road-condition data required"}</p>
+        <aside id="account-panel" className="account-card">
+          {user ? (
+            <>
+              <div className="account-head">
+                <div className="avatar">{(user.display_name || user.email).charAt(0).toUpperCase()}</div>
+                <div className="account-copy"><strong>{user.display_name || "Traveler"}</strong><span>{user.email}</span></div>
+              </div>
+              <div className="account-title"><h3>Saved trips</h3><span>{savedTrips.length}</span></div>
+              <button className="secondary-btn full" type="button" onClick={loadSavedTrips} disabled={savedTripsLoading}>{savedTripsLoading ? "Refreshing…" : "↻ Refresh"}</button>
+              {savedTrips.length === 0 ? (
+                <div className="empty-state"><div>☆</div><strong>No saved trips yet</strong><span>Your planned journeys will appear here.</span></div>
+              ) : (
+                <div className="saved-list">{savedTrips.map((trip) => (
+                  <div className="saved-trip" key={trip.id}>
+                    <div><strong>{trip.name}</strong><span>{new Date(trip.departure_at).toLocaleString()}</span></div>
+                    <button type="button" onClick={() => deleteSavedTrip(trip.id)} aria-label="Delete saved trip">×</button>
                   </div>
-
-                  {route.road_attributes?.sections?.length ? (
-                    <div style={{ marginTop: 18, padding: 14, borderRadius: 12, background: "#f7f8fa" }}>
-                      <h3 style={{ marginTop: 0 }}>Route-section road intelligence</h3>
-                      <p style={{ color: "#68707c", fontSize: 13 }}>
-                        Mapped OSM road attributes near sampled route points. This is not a live pavement inspection.
-                        Coverage: {Math.round((route.road_attributes.coverage ?? 0) * 100)}%.
-                      </p>
-                      <div style={{ display: "grid", gap: 8 }}>
-                        {route.road_attributes.sections.map((section) => (
-                          <div key={section.section_index} style={{ padding: 10, border: "1px solid #e3e6eb", borderRadius: 9, background: "#fff" }}>
-                            <strong>{Math.round((section.route_fraction ?? 0) * 100)}% of route</strong>
-                            {" · "}score {section.score ?? "—"}/100
-                            <div style={{ color: "#68707c", fontSize: 13, marginTop: 4 }}>
-                              {section.highway ?? "road class unknown"} · surface {section.surface ?? "unknown"} · smoothness {section.smoothness ?? "unknown"}
-                              {section.maxspeed ? " · max " + section.maxspeed : ""}
-                              {section.lanes ? " · " + section.lanes + " lanes" : ""}
-                              {section.lit ? " · lighting " + section.lit : ""}
-                            </div>
-                            <div style={{ marginTop: 5, fontSize: 12 }}>
-                              Traffic: <strong>{section.traffic_status ?? "unavailable"}</strong>
-                              {section.traffic_score != null ? " · " + section.traffic_score + "/100" : ""}
-                              {" · "}Safety: <strong>{section.safety_signal ?? "unavailable"}</strong>
-                              {section.safety_score != null ? " · " + section.safety_score + "/100" : ""}
-                            </div>
-                            <div style={{ color: "#68707c", fontSize: 12, marginTop: 3 }}>
-                              Confidence {Math.round((section.confidence ?? 0) * 100)}% · {section.status}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {route.itinerary?.length ? (
-                    <div style={{ marginTop: 18 }}>
-                      <h3>Day-wise itinerary</h3>
-                      {route.itinerary.map((day) => (
-                        <div key={day.day} style={{ padding: 12, borderTop: "1px solid #eee" }}>
-                          <strong>Day {day.day}</strong> · {day.drive_hours}h driving · starts {new Date(day.start_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          {day.overnight ? <div>Rest/overnight break recommended after this driving block.</div> : <div>Destination arrival block.</div>}
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {index === 0 && user && (
-                    <button type="button" onClick={saveCurrentTrip} disabled={saveTripLoading} style={{ marginTop: 12, padding: 12, borderRadius: 9, border: 0, background: "#17191d", color: "#fff" }}>
-                      {saveTripLoading ? "Saving trip…" : "Save this trip"}
-                    </button>
-                  )}
-
-                  {index === 0 && route.rest_stop_candidates?.length ? (
-                    <button type="button" onClick={findStops} disabled={stopsLoading} style={{ marginTop: 12, padding: 12, borderRadius: 9, border: "1px solid #d7dbe2", background: "#fff", cursor: "pointer" }}>
-                      {stopsLoading ? "Finding real nearby stops…" : "Find fuel, EV, restaurants, hotels & rest stops"}
-                    </button>
-                  ) : null}
-
-                  {route.rest_stop_candidates?.length ? (
-                    <div style={{ marginTop: 18 }}>
-                      <h3>Recommended rest windows</h3>
-                      {route.rest_stop_candidates.map((stop, i) => (
-                        <div key={i} style={{ padding: 8 }}>
-                          Stop {i + 1}: around {Math.round(stop.fraction * 100)}% of the route · {stop.latitude.toFixed(5)}, {stop.longitude.toFixed(5)}
-                        </div>
-                      ))}
-                      <p style={{ color: "#68707c", fontSize: 13 }}>Use Nearby Search to select an actual fuel station, restaurant, restroom, hospital or hotel at each rest window.</p>
-                    </div>
-                  ) : null}
-
-                  {index === 0 && stops.length > 0 && (
-                    <div style={{ marginTop: 18 }}>
-                      <h3>Real nearby stop options</h3>
-                      {stops.map((group, groupIndex) => (
-                        <div key={group.category + group.route_fraction + groupIndex} style={{ padding: 10, borderTop: "1px solid #eee" }}>
-                          <strong>{group.category.replace("_", " ")}</strong> · around {Math.round(group.route_fraction * 100)}% of route
-                          {group.places.length === 0 ? (
-                            <div style={{ color: "#68707c", marginTop: 4 }}>No matching places returned in this search radius.</div>
-                          ) : (
-                            group.places.slice(0, 3).map((place, placeIndex) => (
-                              <div key={place.id ?? placeIndex} style={{ marginTop: 6 }}>
-                                {place.googleMapsUri ? <a href={place.googleMapsUri} target="_blank" rel="noreferrer">{place.displayName?.text ?? "Place"}</a> : <span>{place.displayName?.text ?? "Place"}</span>}
-                                {place.formattedAddress && <span style={{ color: "#68707c" }}> · {place.formattedAddress}</span>}
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </article>
-              ))}
-            </div>
-          </>
-        )}
+                ))}</div>
+              )}
+            </>
+          ) : (
+            <>
+              <span className="section-kicker">YOUR ACCOUNT</span>
+              <h2>{authMode === "login" ? "Welcome back" : "Create your account"}</h2>
+              <p className="muted">Save trips and access your travel plans across sessions.</p>
+              <form onSubmit={submitAuth} className="auth-form">
+                {authMode === "register" && <input value={authName} onChange={(e) => setAuthName(e.target.value)} placeholder="Display name" autoComplete="name" />}
+                <input type="email" required value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="Email address" autoComplete="email" />
+                <input type="password" required minLength={10} value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} placeholder="Password (10+ characters)" autoComplete={authMode === "login" ? "current-password" : "new-password"} />
+                <button className="primary-btn" disabled={authLoading} type="submit">{authLoading ? "Please wait…" : authMode === "login" ? "Sign in →" : "Create account →"}</button>
+              </form>
+              <button className="text-btn" type="button" onClick={() => setAuthMode(authMode === "login" ? "register" : "login")}>{authMode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}</button>
+            </>
+          )}
+        </aside>
       </section>
+
+      {error && <div className="error-banner" role="alert"><strong>Something went wrong</strong><span>{error}</span></div>}
+
+      {routes.length > 0 && (
+        <section className="results-section">
+          <div className="results-heading">
+            <div><span className="section-kicker">YOUR TRIP PLAN</span><h2>Routes & intelligence</h2></div>
+            <span className="live-label"><span className="status-dot" /> Live data</span>
+          </div>
+
+          <div className="map-card"><TripMap routes={mapRoutes.map((item, index) => ({
+            ...item,
+            roadSections: (routes[index]?.road_attributes?.sections ?? []).filter((section) => section.latitude != null && section.longitude != null).map((section) => ({
+              latitude: section.latitude as number, longitude: section.longitude as number, score: section.score, route_fraction: section.route_fraction,
+              traffic_status: section.traffic_status, traffic_score: section.traffic_score, safety_signal: section.safety_signal, safety_score: section.safety_score,
+            })),
+          }))} /></div>
+
+          <div className="route-list">
+            {routes.map((route, index) => (
+              <article className={"route-card " + (index === 0 ? "recommended" : "")} key={index}>
+                <div className="route-top">
+                  <div><span className="route-number">ROUTE {index + 1}</span><h3>{route.description || route.label || (index === 0 ? "Recommended route" : "Alternative route")}</h3></div>
+                  {index === 0 && <span className="recommended-badge">★ Best match</span>}
+                </div>
+                <div className="metric-grid">
+                  <div className="metric"><span>Distance</span><strong>{(route.distance_km ?? 0).toFixed(1)} <small>km</small></strong></div>
+                  <div className="metric"><span>Traffic ETA</span><strong>{formatSeconds(route.traffic_duration_seconds)}</strong></div>
+                  <div className="metric"><span>Arrival</span><strong>{route.estimated_arrival_at ? new Date(route.estimated_arrival_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</strong></div>
+                  <div className="metric"><span>Trip cost</span><strong>{route.toll?.amount != null || route.energy?.estimated_cost != null ? "₹" + ((route.toll?.amount ?? 0) + (route.energy?.estimated_cost ?? 0)).toFixed(0) : "—"}</strong></div>
+                </div>
+                <div className="intelligence-grid">
+                  <div className="intel"><span>Trip score</span><strong>{route.trip_score?.overall_score ?? "—"}<small>/100</small></strong><em>{route.trip_score?.grade ?? "Unavailable"}</em></div>
+                  <div className="intel"><span>Traffic</span><strong>{route.road_intelligence?.traffic?.traffic_score ?? "—"}<small>/100</small></strong><em>{route.road_intelligence?.traffic?.congestion ?? "Unavailable"}</em></div>
+                  <div className="intel"><span>Safety signal</span><strong>{route.road_intelligence?.safety?.score ?? "—"}<small>/100</small></strong><em>Route signal</em></div>
+                  <div className="intel"><span>Fuel / energy</span><strong>{route.energy?.user_estimated_units != null ? route.energy.user_estimated_units.toFixed(1) : "—"}</strong><em>{route.energy?.unit || "Not calculated"}</em></div>
+                </div>
+
+                <div className="route-actions">
+                  {index === 0 && user && <button className="secondary-btn" type="button" onClick={saveCurrentTrip} disabled={saveTripLoading}>{saveTripLoading ? "Saving…" : "☆ Save trip"}</button>}
+                  {index === 0 && route.rest_stop_candidates?.length ? <button className="secondary-btn" type="button" onClick={findStops} disabled={stopsLoading}>{stopsLoading ? "Finding stops…" : "＋ Find smart stops"}</button> : null}
+                </div>
+
+                {route.road_attributes?.sections?.length ? (
+                  <details className="details-panel">
+                    <summary>Road intelligence <span>{Math.round((route.road_attributes.coverage ?? 0) * 100)}% coverage</span></summary>
+                    <p>Mapped OSM road attributes near sampled route points. This is not a live pavement inspection.</p>
+                    <div className="road-grid">{route.road_attributes.sections.map((section) => (
+                      <div className="road-item" key={section.section_index}>
+                        <strong>{Math.round((section.route_fraction ?? 0) * 100)}%</strong><span>Score {section.score ?? "—"}/100</span>
+                        <small>{section.highway ?? "road"} · {section.surface ?? "surface unknown"} · {section.smoothness ?? "smoothness unknown"}</small>
+                        <small>Traffic: {section.traffic_status ?? "unavailable"} · Safety: {section.safety_signal ?? "unavailable"}</small>
+                      </div>
+                    ))}</div>
+                  </details>
+                ) : null}
+
+                {route.itinerary?.length ? (
+                  <details className="details-panel"><summary>Day-wise itinerary <span>{route.itinerary.length} day{route.itinerary.length > 1 ? "s" : ""}</span></summary>
+                    <div className="timeline">{route.itinerary.map((day) => <div className="timeline-item" key={day.day}><div className="timeline-dot" /><div><strong>Day {day.day}</strong><span>{day.drive_hours}h driving · starts {new Date(day.start_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span><small>{day.overnight ? "Rest / overnight break recommended" : "Destination arrival block"}</small></div></div>)}</div>
+                  </details>
+                ) : null}
+
+                {route.rest_stop_candidates?.length ? (
+                  <details className="details-panel"><summary>Recommended rest windows <span>{route.rest_stop_candidates.length} stops</span></summary>
+                    <div className="rest-grid">{route.rest_stop_candidates.map((stop, i) => <div className="rest-item" key={i}><strong>Stop {i + 1}</strong><span>~{Math.round(stop.fraction * 100)}% of route</span><small>{stop.reason || "Planned driver rest window"}</small></div>)}</div>
+                  </details>
+                ) : null}
+
+                {index === 0 && stops.length > 0 && (
+                  <div className="stops-panel"><div className="stops-title"><h4>Nearby options</h4><span>Real place results</span></div>
+                    {stops.map((group, groupIndex) => <div className="stop-group" key={group.category + group.route_fraction + groupIndex}><strong>{group.category.replace("_", " ")}</strong><div>{group.places.length === 0 ? <span className="muted">No matching places found.</span> : group.places.slice(0, 3).map((place, placeIndex) => <a key={place.id ?? placeIndex} href={place.googleMapsUri} target="_blank" rel="noreferrer">{place.displayName?.text ?? "Place"}{place.formattedAddress ? <small>{place.formattedAddress}</small> : null}</a>)}</div></div>)}
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <footer className="footer"><span>SmartTrip Planner</span><span>Real route data • Smart planning • Built for the road</span></footer>
     </main>
   );
 }
