@@ -29,7 +29,7 @@ async def compute_route(
         "origin": waypoint(origin_place_id, origin_lat, origin_lng),
         "destination": waypoint(destination_place_id, destination_lat, destination_lng),
         "travelMode": "DRIVE",
-        "routingPreference": "TRAFFIC_AWARE",
+        "routingPreference": "TRAFFIC_AWARE_OPTIMAL" if include_fuel_consumption else "TRAFFIC_AWARE",
         "computeAlternativeRoutes": compute_alternatives,
         "routeModifiers": {
             "avoidTolls": avoid_tolls,
