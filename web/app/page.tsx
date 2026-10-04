@@ -34,6 +34,8 @@ type Route = {
     coverage?: number;
     sections?: Array<{
       section_index: number;
+      latitude?: number;
+      longitude?: number;
       route_fraction?: number;
       score?: number | null;
       highway?: string | null;
