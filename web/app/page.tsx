@@ -28,8 +28,9 @@ type Route = {
   description?: string;
   polyline?: string;
   estimated_arrival_at?: string;
-  toll?: { amount?: number | null; currency?: string | null };
+  toll?: { amount?: number | null; currency?: string | null; available?: boolean };
   energy?: { user_estimated_units?: number | null; unit?: string; estimated_cost?: number | null };
+  label?: string;
   road_intelligence?: { traffic?: { congestion?: string; traffic_score?: number; estimated_average_speed_kmh?: number }; safety?: { score?: number; warnings_count?: number }; road_quality?: { score?: number | null; status?: string } };
   trip_score?: { overall_score?: number; grade?: string; components?: { traffic?: number; safety?: number; data_completeness?: number } };
   road_attributes?: {
@@ -69,6 +70,29 @@ type Route = {
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+function createPlaceSessionToken() {
+  if (typeof globalThis !== "undefined" && globalThis.crypto) {
+    if (typeof globalThis.crypto.randomUUID === "function") {
+      return globalThis.crypto.randomUUID();
+    }
+    if (typeof globalThis.crypto.getRandomValues === "function") {
+      const bytes = new Uint8Array(16);
+      globalThis.crypto.getRandomValues(bytes);
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+      return (
+        hex.slice(0, 8) + "-" +
+        hex.slice(8, 12) + "-" +
+        hex.slice(12, 16) + "-" +
+        hex.slice(16, 20) + "-" +
+        hex.slice(20)
+      );
+    }
+  }
+  return "smarttrip-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+}
+
 function SearchBox({
   label, value, onChange, onSelect,
 }: {
@@ -96,7 +120,7 @@ function SearchBox({
 
     timer.current = setTimeout(async () => {
       try {
-        const token = sessionStorage.getItem("smarttrip-place-session") ?? crypto.randomUUID();
+        const token = sessionStorage.getItem("smarttrip-place-session") ?? createPlaceSessionToken();
         sessionStorage.setItem("smarttrip-place-session", token);
         const response = await fetch(API + "/api/v1/places/autocomplete", {
           method: "POST",
@@ -195,7 +219,7 @@ export default function Home() {
   useEffect(() => {
     if (localStorage.getItem("smarttrip-token")) void loadCurrentUser();
     if (!sessionStorage.getItem("smarttrip-place-session")) {
-      sessionStorage.setItem("smarttrip-place-session", crypto.randomUUID());
+      sessionStorage.setItem("smarttrip-place-session", createPlaceSessionToken());
     }
     const now = new Date();
     const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
@@ -397,7 +421,7 @@ export default function Home() {
               onSelect={(place) => { setOrigin(place); setOriginText(place.label); }} />
             <SearchBox label="Destination" value={destinationText}
               onChange={(value) => { setDestinationText(value); setDestination(null); }}
-              onSelect={(place) => { setDestination(place); setDestinationText(place.label); }} />
+              onSelect={(place) => { setDestination(place); setOriginText(place.label); setDestinationText(place.label); }} />
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
               <label>Departure date<input type="date" value={departureDate} onChange={(e) => setDepartureDate(e.target.value)} required style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 6, padding: 12, borderRadius: 9, border: "1px solid #d7dbe2" }} /></label>
