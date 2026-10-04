@@ -21,6 +21,14 @@ class NearbyRequest(BaseModel):
 async def place_autocomplete(request: AutocompleteRequest):
     return await autocomplete(request.query, request.session_token)
 
+@router.get("/photo")
+async def place_photo(
+    name: str = Query(min_length=8, max_length=500),
+    max_width_px: int = Query(default=640, ge=100, le=1600),
+):
+    content, content_type = await get_place_photo(name, max_width_px)
+    return Response(content=content, media_type=content_type, headers={"Cache-Control": "public, max-age=86400"})
+
 @router.get("/{place_id}")
 async def place_details(place_id: str = Path(min_length=1, max_length=256)):
     return await get_place_details(place_id)
@@ -39,12 +47,3 @@ async def places_nearby(request: NearbyRequest):
     except ValueError as exc:
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@router.get("/photo")
-async def place_photo(
-    name: str = Query(min_length=8, max_length=500),
-    max_width_px: int = Query(default=640, ge=100, le=1600),
-):
-    content, content_type = await get_place_photo(name, max_width_px)
-    return Response(content=content, media_type=content_type, headers={"Cache-Control": "public, max-age=86400"})
