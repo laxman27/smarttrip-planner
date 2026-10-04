@@ -67,11 +67,11 @@ type Route = {
   rest_stop_candidates?: Array<{ latitude: number; longitude: number; fraction: number; stop_index?: number; reason?: string; planned_drive_hours?: number; recommended_after_hours?: number }>;
 };
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API = (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 
 function createPlaceSessionToken() {
   if (typeof globalThis !== "undefined" && globalThis.crypto) {
-    if (typeof globalThis.crypto.randomUUID === "function") return globalThis.createPlaceSessionToken();
+    if (typeof globalThis.crypto.randomUUID === "function") return globalThis.crypto.randomUUID();
     if (typeof globalThis.crypto.getRandomValues === "function") {
       const bytes = new Uint8Array(16);
       globalThis.crypto.getRandomValues(bytes);
