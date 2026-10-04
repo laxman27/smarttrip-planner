@@ -4,7 +4,8 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.google_places import nearby_search\nfrom app.services.trip_planner import plan_trip
+from app.services.google_places import nearby_search
+from app.services.trip_planner import plan_trip
 
 router = APIRouter(prefix="/api/v1/trips", tags=["trip-planning"])
 
