@@ -8,6 +8,10 @@ type RoadSection = {
   longitude: number;
   score?: number | null;
   route_fraction?: number;
+  traffic_status?: string;
+  traffic_score?: number;
+  safety_signal?: string;
+  safety_score?: number;
 };
 
 type MapRoute = {
@@ -15,7 +19,9 @@ type MapRoute = {
   roadSections?: RoadSection[];
 };
 
-function sectionColor(score?: number | null) {
+function sectionColor(score?: number | null, trafficStatus?: string) {
+  if (trafficStatus === "severe" || trafficStatus === "high") return "#dc2626";
+  if (trafficStatus === "moderate") return "#ca8a04";
   if (score == null) return "#6b7280";
   if (score >= 80) return "#15803d";
   if (score >= 60) return "#ca8a04";
@@ -73,7 +79,7 @@ export default function TripMap({ routes }: { routes: MapRoute[] }) {
               radius: 450,
               strokeOpacity: 0.75,
               strokeWeight: 1,
-              fillColor: sectionColor(section.score),
+              fillColor: sectionColor(section.score, section.traffic_status),
               fillOpacity: 0.18,
               zIndex: 3,
             });
