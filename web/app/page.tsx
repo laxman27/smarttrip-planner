@@ -206,7 +206,7 @@ export default function Home() {
   const [avoidTolls, setAvoidTolls] = useState(false);
   const [avoidHighways, setAvoidHighways] = useState(false);
   const [routes, setRoutes] = useState<Route[]>([]);
-  const [stops, setStops] = useState<Array<{ route_fraction: number; category: string; places: Array<{ id?: string; displayName?: { text?: string }; formattedAddress?: string; googleMapsUri?: string }> }>>([]);
+  const [stops, setStops] = useState<Array<{ route_fraction: number; category: string; places: Array<{ id?: string; displayName?: { text?: string }; formattedAddress?: string; googleMapsUri?: string; photos?: Array<{ name?: string }> }> }>>([]);
   const [stopsLoading, setStopsLoading] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -588,7 +588,7 @@ export default function Home() {
 
                 {index === 0 && stops.length > 0 && (
                   <div className="stops-panel"><div className="stops-title"><h4>Nearby options</h4><span>Real place results</span></div>
-                    {stops.map((group, groupIndex) => <div className="stop-group" key={group.category + group.route_fraction + groupIndex}><strong>{group.category.replace("_", " ")}</strong><div>{group.places.length === 0 ? <span className="muted">No matching places found.</span> : group.places.slice(0, 3).map((place, placeIndex) => <a key={place.id ?? placeIndex} href={place.googleMapsUri} target="_blank" rel="noreferrer">{place.displayName?.text ?? "Place"}{place.formattedAddress ? <small>{place.formattedAddress}</small> : null}</a>)}</div></div>)}
+                    {stops.map((group, groupIndex) => <div className="stop-group" key={group.category + group.route_fraction + groupIndex}><strong>{group.category.replace("_", " ")}</strong><div>{group.places.length === 0 ? <span className="muted">No matching places found.</span> : group.places.slice(0, 3).map((place, placeIndex) => <a key={place.id ?? placeIndex} href={place.googleMapsUri} target="_blank" rel="noreferrer">{place.photos?.[0]?.name ? <img className="place-photo" src={API + "/api/v1/places/photo?name=" + encodeURIComponent(place.photos[0].name) + "&max_width_px=640"} alt="" loading="lazy" /> : <div className="place-photo-placeholder">⌖</div>}<span className="place-copy"><strong>{place.displayName?.text ?? "Place"}</strong>{place.formattedAddress ? <small>{place.formattedAddress}</small> : null}</span></a>)}</div></div>)}
                   </div>
                 )}
               </article>
