@@ -62,7 +62,7 @@ type Route = {
     overnight: boolean;
     recommended_break_minutes: number;
   }>;
-  rest_stop_candidates?: Array<{ latitude: number; longitude: number; fraction: number }>;
+  rest_stop_candidates?: Array<{ latitude: number; longitude: number; fraction: number; stop_index?: number; reason?: string; planned_drive_hours?: number; recommended_after_hours?: number }>;
 };
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -242,7 +242,7 @@ export default function Home() {
       const response = await fetch(API + "/api/v1/trips/stops", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ candidates, categories, radius_meters: 5000 }),
+        body: JSON.stringify({ candidates, categories, radius_meters: 5000, max_results_per_category: 3 }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail ?? "Stop search failed.");
