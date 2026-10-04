@@ -279,7 +279,7 @@ export default function Home() {
 
         {routes.length > 0 && (
           <>
-            <div style={{ marginTop: 24 }}><TripMap routes={mapRoutes} /></div>
+            <div style={{ marginTop: 24 }}><TripMap routes={mapRoutes.map((item, index) => ({ ...item, roadSections: routes[index]?.road_attributes?.sections ?? [] }))} /></div>
             <div style={{ display: "grid", gap: 14, marginTop: 24 }}>
               {routes.map((route, index) => (
                 <article key={index} style={{ background: "#fff", padding: 20, borderRadius: 14 }}>
@@ -299,6 +299,33 @@ export default function Home() {
                     <p style={{ margin: "5px 0" }}>Average traffic speed: {route.road_intelligence?.traffic?.estimated_average_speed_kmh != null ? route.road_intelligence.traffic.estimated_average_speed_kmh + " km/h" : "Unavailable"}</p>
                     <p style={{ margin: "5px 0", color: "#68707c", fontSize: 13 }}>Road quality: {route.road_intelligence?.road_quality?.status ?? "Dedicated road-condition data required"}</p>
                   </div>
+
+                  {route.road_attributes?.sections?.length ? (
+                    <div style={{ marginTop: 18, padding: 14, borderRadius: 12, background: "#f7f8fa" }}>
+                      <h3 style={{ marginTop: 0 }}>Route-section road intelligence</h3>
+                      <p style={{ color: "#68707c", fontSize: 13 }}>
+                        Mapped OSM road attributes near sampled route points. This is not a live pavement inspection.
+                        Coverage: {Math.round((route.road_attributes.coverage ?? 0) * 100)}%.
+                      </p>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {route.road_attributes.sections.map((section) => (
+                          <div key={section.section_index} style={{ padding: 10, border: "1px solid #e3e6eb", borderRadius: 9, background: "#fff" }}>
+                            <strong>{Math.round((section.route_fraction ?? 0) * 100)}% of route</strong>
+                            {" · "}score {section.score ?? "—"}/100
+                            <div style={{ color: "#68707c", fontSize: 13, marginTop: 4 }}>
+                              {section.highway ?? "road class unknown"} · surface {section.surface ?? "unknown"} · smoothness {section.smoothness ?? "unknown"}
+                              {section.maxspeed ? " · max " + section.maxspeed : ""}
+                              {section.lanes ? " · " + section.lanes + " lanes" : ""}
+                              {section.lit ? " · lighting " + section.lit : ""}
+                            </div>
+                            <div style={{ color: "#68707c", fontSize: 12, marginTop: 3 }}>
+                              Confidence {Math.round((section.confidence ?? 0) * 100)}% · {section.status}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
 
                   {route.itinerary?.length ? (
                     <div style={{ marginTop: 18 }}>
