@@ -1,6 +1,7 @@
 "use client";
 
 import TripMap from "../components/TripMap";
+import VisualDiscovery, { VisualDiscoveryStyles } from "../components/VisualDiscovery";
 import { useEffect, useRef, useState } from "react";
 
 type Prediction = {
@@ -357,7 +358,11 @@ export default function Home() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail ?? "Trip planning failed.");
-      setRoutes(data.routes ?? []);
+      const plannedRoutes = data.routes ?? [];
+      setRoutes(plannedRoutes);
+      if (plannedRoutes[0]?.rest_stop_candidates?.length) {
+        void findStops(plannedRoutes[0].rest_stop_candidates);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to plan this trip.");
     } finally {
@@ -365,8 +370,8 @@ export default function Home() {
     }
   }
 
-  async function findStops() {
-    const candidates = routes[0]?.rest_stop_candidates;
+  async function findStops(candidateList?: Route["rest_stop_candidates"]) {
+    const candidates = candidateList ?? routes[0]?.rest_stop_candidates;
     if (!candidates?.length) return;
     setStopsLoading(true);
     try {
@@ -409,6 +414,7 @@ export default function Home() {
 
   return (
     <main className="app-shell">
+      <VisualDiscoveryStyles />
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark">S</div>
@@ -534,6 +540,8 @@ export default function Home() {
               traffic_status: section.traffic_status, traffic_score: section.traffic_score, safety_signal: section.safety_signal, safety_score: section.safety_score,
             })),
           }))} /></div>
+
+          <VisualDiscovery destination={destination?.label ?? destinationText} stops={stops} />
 
           <div className="route-list">
             {routes.map((route, index) => (
